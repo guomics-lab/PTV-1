@@ -12,4 +12,4 @@ It will be transfer after 'Differentially expressed analysis'. Divide proteins i
 One-way analysis of variance (ANOVA) was used to determine differences between samples treated with different time points (p-value < 0.05). The average normalized protein quantities by z-score in each GS grade were used for fuzzy c-means clustering with the R package Mfuzz.
 
 #### ppODE
-ppODE:https://github.com/guomics-lab/PTV-1/tree/main/ppODE
+ppODE:[https://github.com/guomics-lab/PTV-1/tree/main/ppODE](https://github.com/guomics-lab/PTV-1/tree/main/ProteinTalks)
