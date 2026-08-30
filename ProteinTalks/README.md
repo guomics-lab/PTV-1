@@ -1,82 +1,90 @@
-# ppODE
+# ProteinTalks
 
-This repository contains the code for training a neural network model to predict drug sensitivity and synergy in triple-negative breast cancer (TNBC) through proteomics data using the ppODE (Perturbation Proteomics Ordinary Differential Equation) architecture. The model is designed to dynamically analyze perturbed proteomic time series data.
+ProteinTalks is a neural ordinary differential equation model for jointly predicting perturbation-induced proteomic dynamics and drug efficacy or combination synergy.
 
-## Usage
+## Model
 
-To run the script with the default parameters, use the following command:
+The model takes the following inputs:
 
-```bash
-python main.py --time_stamp_predict_drug "6_24_48" \
-               --train_percent 0.7 \
-               --val_percent 0.2 \
-               --test_percent 0.1 \
-               --taskname_prefix alltime_allpro_train_ratio_07train_02val \
-               --trainval_file_prefix allcelltype_drugpair_crossdrug_ \
-               --dataset_file_dir "./data/complete_data_proteo_structured_withcontrol20_0925_allproteins/" \
-               --total_epoch 5000 \
-               --patience 800
-```
+- a baseline proteomic profile;
+- a protein-aligned perturbation descriptor;
+- molecular feature vectors for the two drug inputs.
 
-### Arguments
+The neural ODE produces proteomic predictions corresponding to 6, 24 and 48 hours. A phenotype head combines the predicted proteomic trajectory with the drug features to produce a drug-efficacy or combination-synergy probability.
 
-- **`--time_stamp_predict_drug`**: Time stamp used to predict drug synergy. Options include `"6"`, `"24"`, `"48"`, `"all"`, or `"6_24_48"`. Default: `"6"`.
-  
-- **`--lambda_pheno`**: Lambda parameter for multitask learning. Default: `0.8`.
+Protein-expression prediction uses mean squared error (MSE), and phenotype prediction uses binary cross-entropy (BCE). The joint objective is
 
-- **`--taskname_prefix`**: Prefix for the task name and checkpoint files. Default: `""`.
+`Loss = (1 - lambda_pheno) * MSE + lambda_pheno * BCE`,
 
-- **`--dataset_file_dir`**: Directory for the dataset. Default: `"./data/complete_data_proteo_structured_withcontrol20_0925_allproteins/"`.
+with `lambda_pheno=0.8` by default.
 
-- **`--trainval_file_prefix`**: Prefix for the training and validation dataset files. Default: `"allcelltype_drugpair_"`.
+## Installation
 
-- **`--test_file_prefix`**: If empty, the test set is determined by `--test_percent`; otherwise, the specified prefix is used for the test set. Default: `""`.
-
-- **`--total_epoch`**: Total number of epochs for training. Default: `5000`.
-
-- **`--patience`**: Number of epochs to wait before early stopping. Default: `500`.
-
-- **`--train_percent`**: Percentage of data used for training. Default: `0.7`.
-
-- **`--val_percent`**: Percentage of data used for validation. Default: `0.2`.
-
-- **`--test_percent`**: Percentage of data used for testing. If this is set to `0.N`, a portion of the training/validation data will be used for testing. If `0`, the `--test_file_prefix` will define the test set. Default: `0.1`.
-
-- **`--cp_save_dir_best`**: Directory to save the best checkpoint. If empty, the best checkpoint will be selected based on training performance.
-
-- **`--batch_size`**: Batch size for training. Default: `128`.
-
-### Example
-
-To run the ppODE model with time stamps `"6_24_48"`, use the command:
+ProteinTalks uses Python 3.10.6. Install the Python dependencies from this directory:
 
 ```bash
-python main.py --time_stamp_predict_drug "6_24_48" \
-               --train_percent 0.7 \
-               --val_percent 0.2 \
-               --test_percent 0.1 \
-               --taskname_prefix alltime_allpro_train_ratio_07train_02val \
-               --trainval_file_prefix allcelltype_drugpair_crossdrug_ \
-               --dataset_file_dir "./data/complete_data_proteo_structured_withcontrol20_0925_allproteins/" \
-               --patience 800 \
-               -- batch_size 64
+pip install -r requirements.txt
 ```
 
-## Dependencies
+## Input files
 
-Before running the script, ensure that the following Python packages are installed:
+For a dataset prefix such as `allcelltype_drugpair_crossdrug_`, the data directory contains:
 
-- `torch`
-- `torchdyn`
-- `sklearn`
-- `torcheval`
+- `<prefix>node_Index.csv`
+- `<prefix>expr.csv`
+- `<prefix>drug_fp_phychem_A.csv`
+- `<prefix>drug_fp_phychem_B.csv`
+- `<prefix>loo_label.csv`
+- `<prefix>pert.csv`
+- `<prefix>pheno.csv`
 
-You can install these dependencies using pip:
+`loo_label.csv` identifies the experiment and time point for each row. The model uses the baseline profile at 0 hours and predicts the profiles at 6, 24 and 48 hours.
+
+## Training
+
+Run training from the `ProteinTalks` directory:
 
 ```bash
-pip install torch torchdyn sklearn torcheval
+python main.py \
+    --dataset_file_dir /path/to/dataset/ \
+    --trainval_file_prefix allcelltype_drugpair_crossdrug_ \
+    --time_stamp_predict_drug 6_24_48 \
+    --train_percent 0.7 \
+    --val_percent 0.2 \
+    --test_percent 0.1 \
+    --batch_size 64 \
+    --patience 500 \
+    --learning_rate 0.0005 \
+    --lambda_pheno 0.8 \
+    --use_swag \
+    --swag_lr 0.0005 \
+    --swag_freq 1 \
+    --swag_max_models 20 \
+    --swag_start_factor 0.2
 ```
 
-## License
+The default training path uses AdamW and `ReduceLROnPlateau`.
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+## Prediction
+
+```bash
+python main.py \
+    --train_from_scratch predict \
+    --cp_save_dir_best /path/to/model_checkpoint.pt \
+    --dataset_file_dir /path/to/dataset/ \
+    --test_file_prefix test_ \
+    --hidden_size 64 \
+    --dropout_rate 0 \
+    --time_stamp_predict_drug 6_24_48
+```
+
+## Main files
+
+- `main.py`: training and prediction entry point
+- `dataset.py`: dataset loading and splitting
+- `model.py`: ProteinTalks model (`ppODE`)
+- `trainer.py`: joint training, validation and SWAG integration
+- `swag.py`: SWAG parameter collection and sampling
+- `metrics.py`: evaluation metrics
+- `plot.py`: ROC and precision–recall plots
+- `config.py`: command-line configuration
