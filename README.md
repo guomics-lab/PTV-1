@@ -3,7 +3,7 @@
 Here provide some main codes in analysis which mentioned in 'Method' section.
 
 #### ChemmineR.R
-For generating 881-dimensional drug molecular fingerprints (DMFs) and 55-dimensional drug physicochemical properties (DPPs) as the input features of machine learning models.
+For generating 881-dimensional drug molecular fingerprints (DMFs) and 54-dimensional drug physicochemical properties (DPPs) as the input features of machine learning models.
 #### Differentially expressed analysis.R
 Encapsulate the calculation of p-value and fold change(FC) in a function for code reuse; when T-test cannot be performed, both P-value and FC value are equal to NA.
 #### PertScore calculation.R
