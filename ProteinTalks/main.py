@@ -1,714 +1,237 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 """
-This script trains a neural network model for proteomics data using the ppODE architecture.
-Args:
-    time_stamp_predict_drug (str): Time stamp used to predict drug energy. Options: "6", "24", "48", "all"/"6_24_48".
-    lambda_pheno (float): Lambda_pheno for multitask learning.
-    taskname_prefix (str): Task name as prefix of checkpoint.
-    dataset_file_dir (str): Data directory for the dataset.
-    trainval_file_prefix (str): Train validation dataset prefix.
-    test_file_prefix (str): If empty, then use test_percent of trainval_file_prefix as test set; else, use test_file_prefix as test set.
-    total_epoch (int): Total epoch for training.
-    patience (int): Patience for early stopping.
-    train_percent (float): Train percent of the dataset.
-    val_percent (float): Validation percent of the dataset.
-    test_percent (float): Test percent of the dataset. If 0.N, then use test_percent of trainval_file_prefix as test set; else if == 0, use test_file_prefix as test set.
-    cp_save_dir_best (str): If empty, the code would run with the best checkpoint by training dataset. Else, if the loss is small enough, the code would save the checkpoint in the cp_save_dir_best.
-    batch_size (int): Batch size of running.
-Returns:
-    Write the checkpoint_test_metric.txt file with the result metric.
+Main entry point for ProteinTalks proteomic and phenotype prediction.
 """
 
 import os
-import re
 import sys
-
-import math
-import numpy as np
-import pandas as pd
-import scipy.sparse as sp
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import matplotlib
-import matplotlib.pyplot as plt
-import seaborn as sns
-from torch.nn.parameter import Parameter
-from torch.nn.modules.module import Module
-import json
+import numpy as np
+import pickle
+import pandas as pd
 
-from torchdyn.core import NeuralODE
-from torchdyn.datasets import *
-from torchdyn.utils import *
-from torch.utils.data import DataLoader
-from torch.utils.data import Subset
+from config import get_args, setup_device, setup_directories
+from dataset import prepare_data, prepare_testdata
+from model import ppODE
+from trainer import Trainer, load_model_from_checkpoint
 
-import datetime
-import hashlib
+def main():
+    """
+    Main entry point for the application
+    """
+    # Parse command line arguments
+    args = get_args()
 
-import torch.optim as optim
-from torch.utils.data.dataset import random_split
-from torcheval.metrics.functional import binary_auprc, binary_auroc
-from torch.nn.functional import cosine_similarity
-from torch import autograd
-from sklearn.metrics import precision_score, recall_score, f1_score, matthews_corrcoef, cohen_kappa_score, accuracy_score
-from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
-import argparse
+    # Set up device (CPU/GPU)
+    device = setup_device(args)
+    print(f"Using device: {device}")
 
-from utils import *
-from model import *
-from dataset import *
-from plot import *
-from mtl import *
+    # Set up directories for checkpoints and results
+    args.dir_save = setup_directories(args)
+    print(f"Saving results to: {args.dir_save}")
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--time_stamp_predict_drug", type=str, default="6", help="time stamp used to predict drug senergy, option: 6, 24, 48, all/6_24_48") # ["6", "24", "48", "all"/"6_24_48"]
-parser.add_argument("--lambda_pheno", type=float, default=0.8, help="lambda_pheno for multitask learning") #lambda_pheno for multitask learning
-parser.add_argument("--taskname_prefix", type=str, default="", help="task name as prefix of checkpoint") # eg multitask_druginfo_
-parser.add_argument("--dataset_file_dir", type=str, default="./complete_data_proteo_structured_withcontrol20_0925_allproteins/", help="data dir for the dataset") #data dir for the dataset
-parser.add_argument("--trainval_file_prefix", type=str, default="allcelltype_drugpair_", help="train val dataset prefix") #allcelltype_drugpair_crossdrug_
-parser.add_argument("--test_file_prefix", type=str, default="", help="if none, then use test_percent of trainval_file_prefix as test set; else, use test_file_prefix as test set") #if "", then use test_percent of trainval_file_prefix as test set; else, use test_file_prefix as test set
-parser.add_argument("--total_epoch", type=int, default=5000, help="total epoch for training") #total epoch for training
-parser.add_argument("--patience", type=int, default=500, help="patience for early stopping") #patience for early stopping
+    # Check if this is prediction mode
+    if args.train_from_scratch == "predict":
+        # Prediction mode: only load test data and make predictions
+        if not args.cp_save_dir_best:
+            raise ValueError("For prediction mode, --cp_save_dir_best must be specified")
+        if not args.test_file_prefix:
+            raise ValueError("For prediction mode, --test_file_prefix must be specified")
 
-parser.add_argument("--train_percent", type=float, default = 0.7, help = "train percent of the dataset") #train percent of the dataset
-parser.add_argument("--val_percent", type=float, default = 0.2, help = "val percent of the dataset") #val percent of the dataset
-parser.add_argument("--test_percent", type=float, default = 0.1, help = "test percent of the dataset") # actually = (1-train_percent-val_percent) #if 0.N, then use test_percent of trainval_file_prefix as test set; else if==0, use test_file_prefix as test set
+        print("Running in prediction mode...")
+        print("Loading test data...")
+        test_dataloader, pos_percent_info = prepare_testdata(args)
+        print("Class balance:")
+        for split, pct in pos_percent_info.items():
+            print(f"  {split}: {pct:.4f} positive examples")
 
-parser.add_argument("--cp_save_dir_best", type=str, default = "", help = "if none, the code would run with the best checkpoint by training dataset, else if the loss small enough, the code would save the checkpoint in the cp_save_dir_best" ) # in condition "", the code would run with the best checkpoint by training dataset, else if the loss small enough, the code would save the checkpoint in the cp_save_dir_best
-parser.add_argument("--batch_size", type=int, default = 128, help = "batch size of running" ) # batch_size of running
+        # Get dataset info for model initialization
+        sample_batch = next(iter(test_dataloader))
+        num_input_features = sample_batch[0].shape[-1]  # x shape
+        num_pert_features = sample_batch[1].shape[-1]   # pert shape
+        num_output_features = sample_batch[2].shape[-1] # y shape
+        num_protein = sample_batch[0].shape[1]          # protein count
+        num_drug_feats = sample_batch[4].shape[1]       # drug features count
 
-args = parser.parse_args()
-lambda_pheno = args.lambda_pheno
-taskname_prefix = args.taskname_prefix
-trainval_file_prefix = args.trainval_file_prefix
-test_file_prefix = args.test_file_prefix
-total_epoch = args.total_epoch
-dataset_file_dir = args.dataset_file_dir
-patience = args.patience 
-batch_size = args.batch_size
+        print("Model input dimensions:")
+        print(f"  Protein features: {num_input_features}")
+        print(f"  Perturbation features: {num_pert_features}")
+        print(f"  Output features: {num_output_features}")
+        print(f"  Protein count: {num_protein}")
+        print(f"  Drug features: {num_drug_feats}")
 
-train_percent = args.train_percent
-val_percent = args.val_percent
-test_percent = args.test_percent
+        # Initialize model
+        print("Initializing model...")
+        model = ppODE(
+            node_feats=num_input_features,
+            pert_feats=num_pert_features,
+            hidden_feats=args.hidden_size,
+            out_feats=num_output_features,
+            pro_feats=num_protein,
+            drug_feature_feats=num_drug_feats,
+            dropout=args.dropout_rate
+        ).to(device)
 
-time_stamp_predict_drug = args.time_stamp_predict_drug
-cp_save_dir_best = args.cp_save_dir_best
-
-np.set_printoptions(threshold=sys.maxsize)
-DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-# seed for repeatability
-torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = False
-torch.manual_seed(1995)
-torch.cuda.manual_seed(1995)
-np.random.seed(1995)
-
-hash_value = hashlib.sha256(str(datetime.datetime.now()).encode("utf8"))
-dir_save = './checkpoint/' + taskname_prefix + time_stamp_predict_drug + 'h_' + hash_value.hexdigest() +'/'
-if not os.path.exists(dir_save):
-	os.makedirs(dir_save)
-cp_save_dir = os.path.join(dir_save, str(hash_value.hexdigest())+'checkpoint.pth')
-
-print(f"checkpoint would be saved at {dir_save}")
-
-
-# Load the dataset
-dataset = L1000Dataset(trainval_file_prefix, dataset_file_dir)
-print("data num", len(dataset))
-print("label class", set([ i[3].item() for i in dataset ]))
-# change Nan to 0
-nan_samples = []
-for idx, sample in enumerate(dataset):
-    contains_nan = False
-    for tensor in sample:
-        if torch.isnan(tensor).any():
-            contains_nan = True
-            tensor[torch.isnan(tensor)] = torch.tensor(1e-6, dtype=torch.float32) 
-    if contains_nan:
-        nan_samples.append(idx)
-# print("samples with nan:", nan_samples)
-
-# Load the test dataset
-if test_file_prefix != "":
-    test_dataset = L1000Dataset(test_file_prefix, dataset_file_dir)
-    print("test data num", len(dataset))
-    nan_samples = []
-    for idx, sample in enumerate(test_dataset):
-        contains_nan = False
-        for tensor in sample:
-            if torch.isnan(tensor).any():
-                contains_nan = True
-                tensor[torch.isnan(tensor)] = torch.tensor(1e-6, dtype=torch.float32)
-        if contains_nan:
-            nan_samples.append(idx)
-    # print("test samples with nan:", nan_samples)
-
-# Logger
-logger = PerformanceContainer(data={'train_loss':[], 'train_acc':[],
-                                   'test_loss':[], 'test_acc':[],
-                                   'forward_time':[], 'backward_time':[],
-                                   'train_pro_loss':[],'test_pro_loss':[],
-                                   'train_pheno_acc':[],'test_pheno_acc':[],
-                                   'train_pheno_loss':[],'test_pheno_loss':[],
-                                   'train_pheno_auprc':[],'test_pheno_auprc':[],
-                                   'train_pheno_auroc':[],'test_pheno_auroc':[],
-                                   })
-
-# Hyperparameters
-BATCH_SIZE = batch_size
-EPOCHS = total_epoch
-verbose_step = 200
-accuracy_threshold = 0.01
-pheno_accuracy_threshold = 0.00
-
-# Data loader
-if test_percent == 0 :
-    train_size = int(train_percent * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
-    ### save index of dataset
-    # obtain the index of train_dataset test_dataset
-    train_indices = train_dataset.indices
-    val_indices = val_dataset.indices
-    # save the index
-    torch.save(train_indices, os.path.join(dir_save,'train_indices.pt'))
-    torch.save(val_indices, os.path.join(dir_save,'val_indices.pt'))
-    train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-    validation_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
-
-    all_pheno_train = torch.tensor([i[3] for i in train_dataset])
-    print("pos percent train", torch.mean(all_pheno_train))
-    all_pheno_val = torch.tensor([i[3] for i in val_dataset])
-    print("pos percent val", torch.mean(all_pheno_val))
-
-else:
-    train_size = int(train_percent * len(dataset))
-    validation_size = int(val_percent * len(dataset))
-    test_size = len(dataset) - train_size - validation_size
-    ### save index of dataset validation_dataset
-    train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, validation_size, test_size])
-    # obtain the index for train_dataset and test_dataset
-    train_indices = train_dataset.indices
-    val_indices = val_dataset.indices
-    test_indices = test_dataset.indices
-    # save the index
-    torch.save(train_indices, os.path.join(dir_save,'train_indices.pt'))
-    torch.save(val_indices, os.path.join(dir_save,'val_indices.pt'))
-    torch.save(test_indices, os.path.join(dir_save,'test_indices.pt'))
-    train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-    validation_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
-    test_dataloader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
-    
-    all_pheno_train = torch.tensor([i[3] for i in train_dataset])
-    print("pos percent train", torch.mean(all_pheno_train))
-    all_pheno_val = torch.tensor([i[3] for i in val_dataset])
-    print("pos percent val", torch.mean(all_pheno_val))
-    all_pheno_test = torch.tensor([i[3] for i in test_dataset])
-    print("pos percent test", torch.mean(all_pheno_test))
-
-if test_file_prefix != "":
-    test_dataloader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
-
-# # load the index
-# from torch.utils.data import Subset
-# train_indices = torch.load(os.path.join(dir_save,'train_indices.pt'))
-# val_indices = torch.load(os.path.join(dir_save,'val_indices.pt'))
-# # rebuild train_dataset val_dataset with the loaded index
-# train_dataset = Subset(dataset, train_indices)
-# val_dataset = Subset(dataset, val_indices)
-# train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-# validation_dataloader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
-
-# Model definition
-num_input_features = dataset[0][0].shape[1]
-num_pert_features = dataset[0][1].shape[1]
-num_output_features = dataset[0][2].shape[-1]
-num_protein = dataset[0][0].shape[0]
-num_drug_feats = dataset[0][4].shape[0]
-model = ppODE(node_feats=num_input_features, pert_feats=num_pert_features, hidden_feats=32, out_feats=num_output_features, pro_feats=num_protein, drug_feature_feats=num_drug_feats, time_stamp_predict_drug=time_stamp_predict_drug).to(DEVICE)
-
-# Loss function and optimizer
-mse_loss = nn.MSELoss()
-bce_loss = nn.BCELoss()
-optimizer = optim.SGD(model.parameters(), lr=5e-4, momentum=0.95)
-
-# Training loop
-best_val_loss = float('inf')
-es = 0  # for patience
-for epoch in range(EPOCHS):
-    model.train()
-    total_loss = 0.0
-    train_acc = 0.0
-    train_pro_loss = 0.0
-    train_pheno_loss = 0.0
-    train_pheno_acc = 0.0
-    emb_all = []
-    ph_all_train = []
-    pheno_predict_all_train = []
-    # deltamid_all_train = []
-    # deltamax_all_train = []
-    # # for data_batch_train, deltamids_batch_train in train_dataloader:
-    #     deltamid_all_train.append(deltamids_batch_train[0].to(DEVICE))
-    #     deltamax_all_train.append(deltamids_batch_train[1].to(DEVICE))
-    for x, pert, y, ph, fp_phA, fp_phB in train_dataloader:
-        x, pert, y, ph, fp_phA, fp_phB = x.to(DEVICE), pert.to(DEVICE), y.to(DEVICE), ph.to(DEVICE), fp_phA.to(DEVICE), fp_phB.to(DEVICE)
-        outputs, pheno_predict, emb = model(x, pert, fp_phA, fp_phB)        
-        # ### use weight addition as total loss
-        # loss = (1-lambda_pheno) * mse_loss(outputs, y) + lambda_pheno * bce_loss(pheno_predict, ph)
-
-        ### multitask learning
-        # calculate loss
-        loss_task1 = mse_loss(outputs, y)
-        loss_task2 = bce_loss(pheno_predict, ph)
-
-        # calculate gradients
-        optimizer.zero_grad()
-        grad_task1 = autograd.grad(loss_task1, model.parameters(), retain_graph=True, allow_unused=True)
-        grad_task2 = autograd.grad(loss_task2, model.parameters(), allow_unused=True)
-        
-        # gradient clipping
-        clip_value = 1.0
-        grad_task1 = grad_clip(grad_task1, clip_value)
-        grad_task2 = grad_clip(grad_task2, clip_value)
-        
-        # gradient similarity
-        similarity = compute_cosine_similarity(grad_task1, grad_task2)
-        
-        # adjust weights based on similarity
-        weight_task1, weight_task2 = adjust_weights_based_on_similarity(similarity, [1-lambda_pheno, lambda_pheno], 0.01)
-        
-        # update loss
-        loss = weight_task1 * loss_task1 + weight_task2 * loss_task2
-
-        # update gradients
-        for param, g1, g2 in zip(model.parameters(), grad_task1, grad_task2):
-            if param.grad is None:
-                param.grad = torch.zeros_like(param)
-            if g1 is not None and g2 is not None:
-                # check if the gradient size is the same
-                if g1.size() == g2.size():
-                    param.grad += (g1 + g2)
-                else:
-                    raise RuntimeError("Gradient size mismatch")
-            elif g1 is not None:
-                param.grad += g1
-            elif g2 is not None:
-                param.grad += g2
-
-        # update weights
-        optimizer.step()
-        optimizer.zero_grad()
-        total_loss += loss.item()
-        emb_all.append(emb.squeeze(2))
-        ph_all_train.append(ph)
-        pheno_predict_all_train.append(pheno_predict)
-        
-        # train_acc = accuracy(y, outputs, accuracy_threshold).item()
-        train_acc += cor(y, outputs).item()
-        train_pro_loss += mse_loss(outputs, y).item()
-        train_pheno_loss += bce_loss(pheno_predict, ph).item()
-        train_pheno_acc += pheno_accuracy(pheno_predict, ph, pheno_accuracy_threshold).item()
-
-    auprc_train = binary_auprc(torch.cat(pheno_predict_all_train), torch.cat(ph_all_train)).item() #binary_auroc(input, target)
-    auroc_train = binary_auroc(torch.cat(pheno_predict_all_train), torch.cat(ph_all_train)).item()
-    
-    # validation
-    with torch.no_grad():
+        # Load model checkpoint
+        print(f"Loading model from checkpoint: {args.cp_save_dir_best}")
+        checkpoint = torch.load(args.cp_save_dir_best, map_location=device)
+        model.load_state_dict(checkpoint['model_state_dict'])
         model.eval()
-        test_loss = 0.0
-        test_acc = 0.0
-        test_pro_loss = 0.0
-        test_pheno_loss = 0.0
-        test_pheno_acc = 0.0
-        outputs_all = []
-        y_all = []
-        ph_all_test = []
-        pheno_predict_all_test = []
-        deltamid_all_test = []
-        deltamax_all_test = []
-        # for data_batch_test, deltamids_batch_test in test_dataloader:
-        #     deltamid_all_test.append(deltamids_batch_test[0].to(DEVICE))
-        #     deltamax_all_test.append(deltamids_batch_test[1].to(DEVICE))
-        for x, pert, y, ph, fp_phA, fp_phB in validation_dataloader:
-            x, pert, y, ph, fp_phA, fp_phB = x.to(DEVICE), pert.to(DEVICE), y.to(DEVICE), ph.to(DEVICE), fp_phA.to(DEVICE), fp_phB.to(DEVICE)
-            outputs, pheno_predict, emb = model(x, pert, fp_phA, fp_phB)
-            loss = (1-lambda_pheno)*mse_loss(outputs, y) + lambda_pheno*bce_loss(pheno_predict, ph)
-            test_loss += loss.item()
-            emb_all.append(emb.squeeze(2))
-            outputs_all.append(outputs)
-            y_all.append(y)
-            ph_all_test.append(ph)
-            pheno_predict_all_test.append(pheno_predict)
-            # test_acc = accuracy(y_all, outputs_all, accuracy_threshold).item()
-            test_acc += cor(y, outputs).item()
-            test_pro_loss += mse_loss(outputs, y).item()
-            test_pheno_loss += bce_loss(pheno_predict, ph).item()
-            test_pheno_acc += pheno_accuracy(pheno_predict, ph, pheno_accuracy_threshold).item()
-            
-        auprc_test = binary_auprc(torch.cat(pheno_predict_all_test), torch.cat(ph_all_test)).item()
-        auroc_test = binary_auroc(torch.cat(pheno_predict_all_test), torch.cat(ph_all_test)).item()
-        
-        logger.deep_update(logger.data, dict(train_loss=[total_loss / len(train_dataloader)], train_acc=[train_acc / len(train_dataloader)],
-                                             test_loss=[test_loss / len(validation_dataloader)], test_acc=[test_acc / len(validation_dataloader)],
-                                             train_pro_loss = [train_pro_loss / len(train_dataloader)], test_pro_loss = [test_pro_loss / len(validation_dataloader)],
-                                             train_pheno_loss = [train_pheno_loss / len(train_dataloader)], test_pheno_loss = [test_pheno_loss / len(validation_dataloader)],
-                                             train_pheno_acc = [train_pheno_acc / len(train_dataloader)],  test_pheno_acc = [test_pheno_acc / len(validation_dataloader)],                              
-                                             train_pheno_auprc = [auprc_train], test_pheno_auprc = [auprc_test],
-                                             train_pheno_auroc = [auroc_train], test_pheno_auroc = [auroc_test],
-                                            )
+
+        # Make predictions
+        print("Making predictions...")
+        all_predictions = []
+        all_labels = []
+        all_proteomics_outputs = []
+        all_proteomics_labels = []
+
+        with torch.no_grad():
+            for batch in test_dataloader:
+                x, pert, y, pheno, fp_phA, fp_phB = [b.to(device) for b in batch]
+                outputs, pheno_pred, _ = model(x, pert, fp_phA, fp_phB, args.time_stamp_predict_drug)
+
+                all_predictions.extend(pheno_pred.cpu().numpy())
+                all_labels.extend(pheno.cpu().numpy())
+                all_proteomics_outputs.extend(outputs.cpu().numpy())
+                all_proteomics_labels.extend(y.cpu().numpy())
+
+        # Convert to numpy arrays
+        all_predictions = np.array(all_predictions)
+        all_labels = np.array(all_labels)
+        all_proteomics_outputs = np.array(all_proteomics_outputs)
+        all_proteomics_labels = np.array(all_proteomics_labels)
+        binary_predictions = (all_predictions >= 0.5).astype(int)
+        experiment_types_for_samples = np.asarray(
+            test_dataloader.dataset.get_experiment_types()
         )
 
-        
-    if epoch % verbose_step == 0: 
-        print('[{}], Train Loss: {:3.3f}, Test loss: {:3.3f}, Train Accuracy: {:3.3f}, Test Accuracy: {:3.3f}, Train pro loss: {:3.3f}, Test pro loss: {:3.3f}, Train pheno loss: {:3.3f}, Test pheno loss: {:3.3f}, Train pheno acc: {:3.3f}, Test pheno acc: {:3.3f}, Train pheno auprc: {:3.3f}, Test pheno auprc: {:3.3f}, Train pheno auroc: {:3.3f}, Test pheno auroc: {:3.3f} '.format(epoch,
-                                                                                            total_loss / len(train_dataloader),
-                                                                                            test_loss / len(validation_dataloader),
-                                                                                            train_acc / len(train_dataloader),
-                                                                                            test_acc / len(validation_dataloader),
-                                                                                            train_pro_loss/ len(train_dataloader), test_pro_loss/ len(validation_dataloader),
-                                                                                            train_pheno_loss/ len(train_dataloader), test_pheno_loss/ len(validation_dataloader),
-                                                                                            train_pheno_acc/ len(train_dataloader), test_pheno_acc/ len(validation_dataloader),
-                                                                                            auprc_train,  auprc_test,
-                                                                                            auroc_train,  auroc_test,
-                                                                                            ))
-        checkpoint = {
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'epoch': epoch
+        output_lengths = {
+            'predicted_probabilities': len(all_predictions),
+            'binary_predictions': len(binary_predictions),
+            'ground_truth': len(all_labels),
+            'proteomics_predictions': len(all_proteomics_outputs),
+            'proteomics_ground_truth': len(all_proteomics_labels),
+            'experiment_types': len(experiment_types_for_samples),
         }
-        cp_save_dir = dir_save+str(epoch)+'_checkpoint.pth'
-        torch.save(checkpoint, cp_save_dir)
-    
-    if test_pheno_loss < best_val_loss:
-        best_val_loss = test_pheno_loss
-        es = 0
-        checkpoint = {
-            'model_state_dict': model.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-            'epoch': epoch
-        }
-        cp_save_dir = dir_save+str(epoch)+'best_checkpoint.pth'
-        cp_save_dir_best = cp_save_dir # the test will be run in the cp_save_dir
-        torch.save(checkpoint, cp_save_dir)
+        if len(set(output_lengths.values())) != 1:
+            raise RuntimeError(f"Inconsistent prediction output lengths: {output_lengths}")
+
+        # Save prediction results with experiment types
+        results_path = os.path.join(args.dir_save, "predictions.npz")
+        np.savez(
+            results_path,
+            predicted_probabilities=all_predictions,
+            binary_predictions=binary_predictions,
+            ground_truth=all_labels,
+            experiment_types=experiment_types_for_samples
+        )
+
+        # Save proteomics predictions
+        results_path_proteomics = os.path.join(args.dir_save, "predictions_proteomics.npz")
+        np.savez(
+            results_path_proteomics,
+            predicted_probabilities=all_proteomics_outputs,
+            ground_truth=all_proteomics_labels,
+            experiment_types=experiment_types_for_samples
+        )
+
+        # Save as CSV for easier analysis
+        results_df_path = os.path.join(args.dir_save, "predictions.csv")
+        pd.DataFrame({
+            'ground_truth': all_labels,
+            'predicted_probabilities': all_predictions,
+            'binary_predictions': binary_predictions,
+            'experiment_type': experiment_types_for_samples
+        }).to_csv(results_df_path, index=False)
+
+        print("Predictions completed. Results saved to:")
+        print(f"  NPZ format: {results_path}")
+        print(f"  CSV format: {results_df_path}")
+        print(f"  Total samples: {len(all_predictions)}")
+        print(f"  Predicted positive rate: {np.mean(binary_predictions):.4f}")
+
+        return 0
+
+    # Training/Fine-tuning mode
+    print("Loading and preparing data...")
+    train_dataloader, validation_dataloader, test_dataloader, pos_percent_info = prepare_data(args)
+    print("Class balance:")
+    for split, pct in pos_percent_info.items():
+        print(f"  {split}: {pct:.4f} positive examples")
+
+    # Get dataset info for model initialization
+    sample_batch = next(iter(train_dataloader))
+    num_input_features = sample_batch[0].shape[-1]  # x shape
+    num_pert_features = sample_batch[1].shape[-1]   # pert shape
+    num_output_features = sample_batch[2].shape[-1] # y shape
+    num_protein = sample_batch[0].shape[1]          # protein count
+    num_drug_feats = sample_batch[4].shape[1]       # drug features count
+
+    print("Model input dimensions:")
+    print(f"  Protein features: {num_input_features}")
+    print(f"  Perturbation features: {num_pert_features}")
+    print(f"  Output features: {num_output_features}")
+    print(f"  Protein count: {num_protein}")
+    print(f"  Drug features: {num_drug_feats}")
+
+    # Initialize model
+    print("Initializing model...")
+    model = ppODE(
+        node_feats=num_input_features,
+        pert_feats=num_pert_features,
+        hidden_feats=args.hidden_size,
+        out_feats=num_output_features,
+        pro_feats=num_protein,
+        drug_feature_feats=num_drug_feats,
+        dropout=args.dropout_rate
+    ).to(device)
+
+    # Set up optimizer
+    optimizer_kwargs = {
+        'lr': args.learning_rate,
+        'weight_decay': args.weight_decay,
+    }
+    if args.optimizer == 'sgd':
+        optimizer = torch.optim.SGD(
+            model.parameters(),
+            momentum=0.95,
+            **optimizer_kwargs
+        )
+    elif args.optimizer == 'adam':
+        optimizer = torch.optim.Adam(model.parameters(), **optimizer_kwargs)
     else:
-        es += 1
-        if es > patience:
-            print("Early stopping with best_val_loss: ", best_val_loss, "and val_loss for this epoch: ", test_pheno_loss)
-            break
+        optimizer = torch.optim.AdamW(model.parameters(), **optimizer_kwargs)
 
-print('[{}], Train Loss: {:3.3f}, Test loss: {:3.3f}, Train Accuracy: {:3.3f}, Test Accuracy: {:3.3f}, Train pro loss: {:3.3f}, Test pro loss: {:3.3f}, Train pheno loss: {:3.3f}, Test pheno loss: {:3.3f}, Train pheno acc: {:3.3f}, Test pheno acc: {:3.3f}, Train pheno auprc: {:3.3f}, Test pheno auprc: {:3.3f}, Train pheno auroc: {:3.3f}, Test pheno auroc: {:3.3f} '.format(epoch,
-                                                                                    total_loss / len(train_dataloader),
-                                                                                    test_loss / len(validation_dataloader),
-                                                                                    train_acc / len(train_dataloader),
-                                                                                    test_acc / len(validation_dataloader),
-                                                                                    train_pro_loss/ len(train_dataloader), test_pro_loss/ len(validation_dataloader),
-                                                                                    train_pheno_loss/ len(train_dataloader), test_pheno_loss/ len(validation_dataloader),
-                                                                                    train_pheno_acc/ len(train_dataloader), test_pheno_acc/ len(validation_dataloader),
-                                                                                    auprc_train,  auprc_test,
-                                                                                    auroc_train,  auroc_test,
-                                                                                    ))
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode='min',
+        factor=0.1,
+        patience=100,
+        verbose=True
+    )
 
-print("predict pos percent train", torch.mean(torch.cat(pheno_predict_all_train)))
-print("predict pos percent test", torch.mean(torch.cat(pheno_predict_all_test)))
+    # Load from checkpoint if specified
+    if not args.from_scratch and args.cp_save_dir_best:
+        print(f"Loading model from checkpoint: {args.cp_save_dir_best}")
+        model, optimizer, scheduler, epoch = load_model_from_checkpoint(
+            model, optimizer, scheduler, args.cp_save_dir_best, device
+        )
+        print(f"Continuing from epoch {epoch}")
+    else:
+        print("Training from scratch")
 
-with open(dir_save+"checkpoint_test_metric.txt", "w") as f:
-    f.write("train result ...\n")
-    f.write('[{}], Train Loss: {:3.3f}, Test loss: {:3.3f}, Train Accuracy: {:3.3f}, Test Accuracy: {:3.3f}, Train pro loss: {:3.3f}, Test pro loss: {:3.3f}, Train pheno loss: {:3.3f}, Test pheno loss: {:3.3f}, Train pheno acc: {:3.3f}, Test pheno acc: {:3.3f}, Train pheno auprc: {:3.3f}, Test pheno auprc: {:3.3f}, Train pheno auroc: {:3.3f}, Test pheno auroc: {:3.3f} '.format(epoch,
-                                                                                    total_loss / len(train_dataloader),
-                                                                                    test_loss / len(validation_dataloader),
-                                                                                    train_acc / len(train_dataloader),
-                                                                                    test_acc / len(validation_dataloader),
-                                                                                    train_pro_loss/ len(train_dataloader), test_pro_loss/ len(validation_dataloader),
-                                                                                    train_pheno_loss/ len(train_dataloader), test_pheno_loss/ len(validation_dataloader),
-                                                                                    train_pheno_acc/ len(train_dataloader), test_pheno_acc/ len(validation_dataloader),
-                                                                                    auprc_train,  auprc_test,
-                                                                                    auroc_train,  auroc_test,
-                                                                                    ))
+    # Initialize trainer
+    trainer = Trainer(model, optimizer, scheduler, args, device)
 
-    f.write("predict pos percent train %s"%(torch.mean(torch.cat(pheno_predict_all_train))))
-    f.write('\n')
-    f.write("predict pos percent test %s"%(torch.mean(torch.cat(pheno_predict_all_test))))
-    f.write('\n')
-    f.write("\npredict pos percent train %s"%( torch.mean(torch.cat(pheno_predict_all_train))))
-    f.write("\npredict pos percent test %s"%( torch.mean(torch.cat(pheno_predict_all_test))))
+    # Train the model
+    best_val_metrics = trainer.train(train_dataloader, validation_dataloader, test_dataloader)
+    with open(os.path.join(args.dir_save, "training_log.pkl"), 'wb') as f:
+        pickle.dump(best_val_metrics, f)
 
+    print(f"Training completed. Results saved to {args.dir_save}")
+    return 0
 
-### save validation value ...
-with torch.no_grad():
-    model.eval()
-    test_loss = 0.0
-    test_acc = 0.0
-    test_pro_loss = 0.0
-    test_pheno_loss = 0.0
-    test_pheno_acc = 0.0
-    # test_pheno_auprc = 0.0
-    # test_pheno_auroc = 0.0        
-    outputs_all = []
-    y_all = []
-    ph_all_test = []
-    pheno_predict_all_test = []
-    deltamid_all_test = []
-    deltamax_all_test = []
-    # for data_batch_test, deltamids_batch_test in test_dataloader:
-    #     deltamid_all_test.append(deltamids_batch_test[0].to(DEVICE))
-    #     deltamax_all_test.append(deltamids_batch_test[1].to(DEVICE))
-    for x, pert, y, ph, fp_phA, fp_phB in validation_dataloader:
-        x, pert, y, ph, fp_phA, fp_phB = x.to(DEVICE), pert.to(DEVICE), y.to(DEVICE), ph.to(DEVICE), fp_phA.to(DEVICE), fp_phB.to(DEVICE)
-        outputs, pheno_predict, emb = model(x, pert, fp_phA, fp_phB)
-        loss = (1-lambda_pheno)*mse_loss(outputs, y) + lambda_pheno*bce_loss(pheno_predict, ph)
-        test_loss += loss.item()
-        emb_all.append(emb.squeeze(2))
-        outputs_all.append(outputs)
-        y_all.append(y)
-        ph_all_test.append(ph)
-        pheno_predict_all_test.append(pheno_predict)
-        # test_acc = accuracy(y_all, outputs_all, accuracy_threshold).item()
-        test_acc += cor(y, outputs).item()
-        test_pro_loss += mse_loss(outputs, y).item()
-        test_pheno_loss += bce_loss(pheno_predict, ph).item()
-        test_pheno_acc += pheno_accuracy(pheno_predict, ph, pheno_accuracy_threshold).item()
-
-    auprc_test = binary_auprc(torch.cat(pheno_predict_all_test), torch.cat(ph_all_test)).item() #input, target
-    auroc_test = binary_auroc(torch.cat(pheno_predict_all_test), torch.cat(ph_all_test)).item()
-    
-    pheno_predict_np = torch.cat(pheno_predict_all_test).cpu().numpy()
-    ph_all_np = torch.cat(ph_all_test).cpu().numpy()
-
-    threshold = 0.5
-    pheno_predict_binary = (pheno_predict_np >= threshold).astype(int)
-
-    # cal Precision, Recall, F1-score, Matthew's Correlation Coefficient, Cohen's Kappa
-    accuracy = accuracy_score(ph_all_np, pheno_predict_binary)
-    precision = precision_score(ph_all_np, pheno_predict_binary)
-    recall = recall_score(ph_all_np, pheno_predict_binary)
-    f1 = f1_score(ph_all_np, pheno_predict_binary)
-    mcc = matthews_corrcoef(ph_all_np, pheno_predict_binary)
-    kappa = cohen_kappa_score(ph_all_np, pheno_predict_binary)
-
-    # print metric
-    print("Accuracy: ", accuracy)
-    print("Precision: ", precision)
-    print("Recall: ", recall)
-    print("F1-score: ", f1)
-    print("Matthew's Correlation Coefficient: ", mcc)
-    print("Cohen's Kappa: ", kappa)
-    print('[{}], Train Loss: {:3.3f}, Train Accuracy: {:3.3f},  Train pro loss: {:3.3f}, Train pheno loss: {:3.3f},  Train pheno acc: {:3.3f},  Train pheno auprc: {:3.3f}, Train pheno auroc: {:3.3f} '.format(epoch,
-                                                                                    total_loss / len(train_dataloader),
-                                                                                    train_acc / len(train_dataloader),
-                                                                                    train_pro_loss/ len(train_dataloader),
-                                                                                    train_pheno_loss/ len(train_dataloader),
-                                                                                    train_pheno_acc/ len(train_dataloader),
-                                                                                    auprc_train, 
-                                                                                    auroc_train, 
-                                                                                    ))
-    print('[{}], Test loss: {:3.3f},  Test Accuracy: {:3.3f},  Test pro loss: {:3.3f},  Test pheno loss: {:3.3f},   Test pheno acc: {:3.3f},   Test pheno auprc: {:3.3f},   Test pheno auroc: {:3.3f} '.format(epoch,
-                                                                                    test_loss / len(validation_dataloader),
-                                                                                    test_acc / len(validation_dataloader),
-                                                                                    test_pro_loss/ len(validation_dataloader),
-                                                                                    test_pheno_loss/ len(validation_dataloader),
-                                                                                    test_pheno_acc/ len(validation_dataloader),
-                                                                                    auprc_test,
-                                                                                    auroc_test,
-                                                                                    ))
-     
-with open(dir_save+"checkpoint_test_metric.txt", "a+") as f:
-    f.write("\n\nvalidation result ...\n")
-    f.write("Accuracy: %s"%(accuracy))
-    f.write('\n')
-    f.write("Precision: %s"%(precision))
-    f.write('\n')
-    f.write("Recall: %s"%(recall))
-    f.write('\n')
-    f.write("F1-score: %s"%(f1))
-    f.write('\n')
-    f.write("Matthew's Correlation Coefficient: %s"%(mcc))
-    f.write('\n')
-    f.write("Cohen's Kappa: %s"%(kappa))
-    f.write('\n')
-    f.write('[{}], Train Loss: {:3.3f}, Train Accuracy: {:3.3f},  Train pro loss: {:3.3f}, Train pheno loss: {:3.3f},  Train pheno acc: {:3.3f},  Train pheno auprc: {:3.3f}, Train pheno auroc: {:3.3f} '.format(epoch,
-                                                                                    total_loss / len(train_dataloader),
-                                                                                    train_acc / len(train_dataloader),
-                                                                                    train_pro_loss/ len(train_dataloader),
-                                                                                    train_pheno_loss/ len(train_dataloader),
-                                                                                    train_pheno_acc/ len(train_dataloader),
-                                                                                    auprc_train, 
-                                                                                    auroc_train, 
-                                                                                    ))
-    f.write('\n')
-    f.write('[{}], Test loss: {:3.3f},  Test Accuracy: {:3.3f},  Test pro loss: {:3.3f},  Test pheno loss: {:3.3f},   Test pheno acc: {:3.3f},   Test pheno auprc: {:3.3f},   Test pheno auroc: {:3.3f} '.format(epoch,
-                                                                                    test_loss / len(validation_dataloader),
-                                                                                    test_acc / len(validation_dataloader),
-                                                                                    test_pro_loss/ len(validation_dataloader),
-                                                                                    test_pheno_loss/ len(validation_dataloader),
-                                                                                    test_pheno_acc/ len(validation_dataloader),
-                                                                                    auprc_test,
-                                                                                    auroc_test,
-                                                                                    ))
-
-
-with open(dir_save+'/logger.json', 'w') as output:
-    json_str = logger.to_json()
-    output.write(json_str)
-
-
-#### load the saved checkpoint
-checkpoint = {
-    'model_state_dict': model.state_dict(),
-    'optimizer_state_dict': optimizer.state_dict(),
-    'epoch': EPOCHS
-}
-print(str(datetime.datetime.now()))
-cp_save_dir = dir_save+str(epoch)+'_checkpoint.pth'
-torch.save(checkpoint, cp_save_dir)
-print(cp_save_dir)
-
-#### Load the model checkpoint
-checkpoint = torch.load(cp_save_dir_best) # the test will be run in the cp_save_dir_best
-model = ppODE(node_feats=num_input_features, pert_feats=num_pert_features, hidden_feats=32, out_feats=num_output_features, pro_feats=num_protein, drug_feature_feats=num_drug_feats, time_stamp_predict_drug=time_stamp_predict_drug).to(DEVICE)
-optimizer = optim.SGD(model.parameters(), lr=5e-4, momentum=0.95)
-model.load_state_dict(checkpoint['model_state_dict'])
-optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-loaded_epoch = checkpoint['epoch']
-print("Model and optimizer state loaded successfully, epoch:", loaded_epoch)
-
-
-### plot the loss and accuracy curve for training and validation
-fl_n = 10
-plot_loss(logger.data['train_loss'], logger.data['test_loss'], fl_n, dir_save)
-plot_pheno(logger.data['train_pheno_loss'], logger.data['train_pheno_acc'], logger.data['test_pheno_loss'], logger.data['test_pheno_acc'], fl_n, dir_save)
-plot_auprc_auroc(logger.data['train_pheno_auprc'], logger.data['train_pheno_auroc'], logger.data['test_pheno_auprc'], logger.data['test_pheno_auroc'], fl_n, dir_save)
-plot_proteomics_predict(logger.data['train_pro_loss'], logger.data['train_acc'], logger.data['test_pro_loss'], logger.data['test_acc'], fl_n, dir_save)
-
-pheno_predict_np = torch.cat(pheno_predict_all_test).cpu().numpy()
-ph_all_np = torch.cat(ph_all_test).cpu().numpy()
-plot_auprc(pheno_predict_np, ph_all_np, dir_save, "validation")
-plot_auroc(pheno_predict_np, ph_all_np, dir_save, "validation")
-
-### test 
-if test_percent != 0 or test_file_prefix!='':
-    with torch.no_grad():
-        model.eval()
-        test_loss = 0.0
-        test_acc = 0.0
-        test_pro_loss = 0.0
-        test_pheno_loss = 0.0
-        test_pheno_acc = 0.0
-        outputs_all = []
-        y_all = []
-        ph_all_test = []
-        pheno_predict_all_test = []
-        deltamid_all_test = []
-        deltamax_all_test = []
-        # for data_batch_test, deltamids_batch_test in test_dataloader:
-        #     deltamid_all_test.append(deltamids_batch_test[0].to(DEVICE))
-        #     deltamax_all_test.append(deltamids_batch_test[1].to(DEVICE))
-        for x, pert, y, ph, fp_phA, fp_phB in test_dataloader:
-            x, pert, y, ph, fp_phA, fp_phB = x.to(DEVICE), pert.to(DEVICE), y.to(DEVICE), ph.to(DEVICE), fp_phA.to(DEVICE), fp_phB.to(DEVICE)
-            outputs, pheno_predict, emb = model(x, pert, fp_phA, fp_phB)
-            loss = (1-lambda_pheno)*mse_loss(outputs, y) + lambda_pheno*bce_loss(pheno_predict, ph)
-            test_loss += loss.item()
-            emb_all.append(emb.squeeze(2))
-            outputs_all.append(outputs)
-            y_all.append(y)
-            ph_all_test.append(ph)
-            pheno_predict_all_test.append(pheno_predict)
-            test_acc += cor(y, outputs).item()
-            test_pro_loss += mse_loss(outputs, y).item()
-            test_pheno_loss += bce_loss(pheno_predict, ph).item()
-            test_pheno_acc += pheno_accuracy(pheno_predict, ph, pheno_accuracy_threshold).item()
-
-        auprc_test = binary_auprc(torch.cat(pheno_predict_all_test), torch.cat(ph_all_test)).item() #input, target
-        auroc_test = binary_auroc(torch.cat(pheno_predict_all_test), torch.cat(ph_all_test)).item()
-        
-        pheno_predict_np = torch.cat(pheno_predict_all_test).cpu().numpy()
-        ph_all_np = torch.cat(ph_all_test).cpu().numpy()
-
-        threshold = 0.5
-        pheno_predict_binary = (pheno_predict_np >= threshold).astype(int)
-
-        # Precision, Recall, F1-score, Matthew's Correlation Coefficient, Cohen's Kappa
-        accuracy = accuracy_score(ph_all_np, pheno_predict_binary)
-        precision = precision_score(ph_all_np, pheno_predict_binary)
-        recall = recall_score(ph_all_np, pheno_predict_binary)
-        f1 = f1_score(ph_all_np, pheno_predict_binary)
-        mcc = matthews_corrcoef(ph_all_np, pheno_predict_binary)
-        kappa = cohen_kappa_score(ph_all_np, pheno_predict_binary)
-
-        # print metric
-        print("Accuracy: ", accuracy)
-        print("Precision: ", precision)
-        print("Recall: ", recall)
-        print("F1-score: ", f1)
-        print("Matthew's Correlation Coefficient: ", mcc)
-        print("Cohen's Kappa: ", kappa)
-        
-        print('[{}], Train Loss: {:3.3f}, Train Accuracy: {:3.3f},  Train pro loss: {:3.3f}, Train pheno loss: {:3.3f},  Train pheno acc: {:3.3f},  Train pheno auprc: {:3.3f}, Train pheno auroc: {:3.3f} '.format(loaded_epoch,
-                                                                                        total_loss / len(train_dataloader),
-                                                                                        train_acc / len(train_dataloader),
-                                                                                        train_pro_loss/ len(train_dataloader),
-                                                                                        train_pheno_loss/ len(train_dataloader),
-                                                                                        train_pheno_acc/ len(train_dataloader),
-                                                                                        auprc_train, 
-                                                                                        auroc_train, 
-                                                                                        ))
-        print('[{}], Test loss: {:3.3f},  Test Accuracy: {:3.3f},  Test pro loss: {:3.3f},  Test pheno loss: {:3.3f},   Test pheno acc: {:3.3f},   Test pheno auprc: {:3.3f},   Test pheno auroc: {:3.3f} '.format(loaded_epoch,
-                                                                                        test_loss / len(test_dataloader),
-                                                                                        test_acc / len(test_dataloader),
-                                                                                        test_pro_loss/ len(test_dataloader),
-                                                                                        test_pheno_loss/ len(test_dataloader),
-                                                                                        test_pheno_acc/ len(test_dataloader),
-                                                                                        auprc_test,
-                                                                                        auroc_test,
-                                                                                        ))
-    len_test_dataloader = len(test_dataloader)
-    # save test metric
-    with open(dir_save+"checkpoint_test_metric.txt", "a+") as f:
-        f.write("\n\ntest result ...\n")
-        f.write("Accuracy: %s"%(accuracy))
-        f.write('\n')
-        f.write("Precision: %s"%(precision))
-        f.write('\n')
-        f.write("Recall: %s"%(recall))
-        f.write('\n')
-        f.write("F1-score: %s"%(f1))
-        f.write('\n')
-        f.write("Matthew's Correlation Coefficient: %s"%(mcc))
-        f.write('\n')
-        f.write("Cohen's Kappa: %s"%(kappa))
-        f.write('\n')
-        f.write('[{}], Train Loss: {:3.3f}, Train Accuracy: {:3.3f},  Train pro loss: {:3.3f}, Train pheno loss: {:3.3f},  Train pheno acc: {:3.3f},  Train pheno auprc: {:3.3f}, Train pheno auroc: {:3.3f} '.format(epoch,
-                                                                                        total_loss / len(train_dataloader),
-                                                                                        train_acc / len(train_dataloader),
-                                                                                        train_pro_loss/ len(train_dataloader),
-                                                                                        train_pheno_loss/ len(train_dataloader),
-                                                                                        train_pheno_acc/ len(train_dataloader),
-                                                                                        auprc_train, 
-                                                                                        auroc_train, 
-                                                                                        ))
-        f.write('\n')
-        f.write('[{}], Test loss: {:3.3f},  Test Accuracy: {:3.3f},  Test pro loss: {:3.3f},  Test pheno loss: {:3.3f},   Test pheno acc: {:3.3f},   Test pheno auprc: {:3.3f},   Test pheno auroc: {:3.3f} '.format(epoch,
-                                                                                        test_loss / len_test_dataloader,
-                                                                                        test_acc / len_test_dataloader,
-                                                                                        test_pro_loss/ len_test_dataloader,
-                                                                                        test_pheno_loss/ len_test_dataloader,
-                                                                                        test_pheno_acc/ len_test_dataloader,
-                                                                                        auprc_test,
-                                                                                        auroc_test,
-                                                                                        ))
-        f.write("\npredict pos percent train %s"%(torch.mean(torch.cat(pheno_predict_all_train))))
-        f.write("\npredict pos percent test %s"%(torch.mean(torch.cat(pheno_predict_all_test))))
-
-    print("predict pos percent train", torch.mean(torch.cat(pheno_predict_all_train)))
-    print("predict pos percent test", torch.mean(torch.cat(pheno_predict_all_test)))
-
-    pheno_predict_np = torch.cat(pheno_predict_all_test).cpu().numpy()
-    ph_all_np = torch.cat(ph_all_test).cpu().numpy()
-
-    # plot auroc and auprc
-    plot_auroc(pheno_predict_np, ph_all_np, dir_save, "test")
-    plot_auprc(pheno_predict_np, ph_all_np, dir_save, "test")
-
-else:
-    accuracy, precision, recall, f1, mcc, kappa = "without test dataset", "without test dataset", "without test dataset", "without test dataset", "without test dataset", "without test dataset"
-    
-print(epoch, dir_save)
+if __name__ == "__main__":
+    sys.exit(main())
