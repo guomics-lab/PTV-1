@@ -124,6 +124,8 @@ class ProteomicsDataset(Dataset):
 
                     # Get drug-efficacy or combination-synergy labels
                     pheno_values = float(pheno.loc[loo_label[loo_label[0] == experiment_type].index[0]].values)
+                    # `pheno.csv` is expected to contain preprocessed labels with NaNs removed.
+                    # This branch is a fallback for any residual NaN and maps it to 0.0.
                     if np.isnan(pheno_values):
                         pheno_tensor = torch.tensor(0.0).float()
                     else:
