@@ -6,18 +6,18 @@ library(foreach)
 library(doParallel)
 
 #### EF ####
-D:/chh/2023workProject/prottalk/code/differ analysis20230822/Ttest20260324/ptv1_Ttest_drug_cell_time20260324.R
+#Ttest20260324/ptv1_Ttest_drug_cell_time20260324.R
 
 #### 20260320 subtype time ####
-files = list.files('D:/chh/2023workProject/prottalk/code/differ analysis20230822/Ttest20260302/drug_cell_time/', pattern = '*xlsx')
+files = list.files('./', pattern = '*xlsx')
 files_obs = files[grepl('hrs_ttest20260307', files)]
 files_obs = sort(files_obs)
-temp = read.xlsx(paste0('D:/chh/2023workProject/prottalk/code/differ analysis20230822/Ttest20260302/drug_cell_time/', files_obs[1]), rowNames = T)
+temp = read.xlsx(paste0('./', files_obs[1]), rowNames = T)
 cl <- makeCluster(6)  # 创建一个4核心的集群
 registerDoParallel(cl)
 result <- foreach(f = files_obs ) %dopar% {
   library(openxlsx)
-  temp = read.xlsx(paste0('D:/chh/2023workProject/prottalk/code/differ analysis20230822/Ttest20260302/drug_cell_time/', f), rowNames = T)
+  temp = read.xlsx(paste0('./', f), rowNames = T)
   temp$sig = ifelse(is.na(temp$FDR), 0, ifelse(temp$logFC> log2(1.2) & temp$FDR<0.05, 1,
                                                ifelse( temp$logFC< (-log2(1.2)) & temp$FDR<0.05, -1, 0)))
   temp$sig
@@ -43,10 +43,10 @@ for (sb2 in c( "ALK", "antimitotic", "hormonal agent", "Kinase", "CDK",  "Topois
 }
 head(S_obs)
 sort(colnames(S_obs))
-# write.xlsx(S_obs, 'D:/chh/2023workProject/prottalk/code/differ analysis20230822/Ttest20260302_sb2time_pertscore20260320.xlsx', sheetName = 'obs', rowNames = T)
+# write.xlsx(S_obs, './Ttest20260302_sb2time_pertscore20260320.xlsx', sheetName = 'obs', rowNames = T)
 
 # _drugsum_20260309
-files = list.files('D:/chh/2023workProject/prottalk/code/differ analysis20230822/Ttest20260324/', pattern = '*xlsx')
+files = list.files('./', pattern = '*xlsx')
 files_null = files[!grepl('_drugsum_', files) & grepl('seeds', files) & grepl('20260324', files)]
 files_null = sort(files_null)
 files_null[1:10]
@@ -63,7 +63,7 @@ colnames(S_null_matrix_sum) = cols
 
 for (f in files_null) {
   # f = files_null[1]
-  temp = read.xlsx(paste0('D:/chh/2023workProject/prottalk/code/differ analysis20230822/Ttest20260324/', f), rowNames = T)
+  temp = read.xlsx(paste0('.4/', f), rowNames = T)
   colnames(temp) = gsub('X.', '#', colnames(temp), fixed = T)
   temp[is.na(temp)] = 0
   d = gsub('_.*', '', colnames(temp)[1])
@@ -85,25 +85,25 @@ rownames(S_null_matrix_sum) = gsub('[^0-9A-Za-z]', '.', rownames(S_null_matrix_s
 setdiff(rownames(PARP_null_matrix_sum), rownames(S_null_matrix_sum))
 
 # c( "ALK", "antimitotic", "hormonal agent", "Kinase", "CDK",  "Topoisomerase", 'PARP')
-Topoisomerase_null_matrix_sum = read.csv("D:/chh/2023workProject/prottalk/code/differ analysis20230822/Ttest20260324/1000seeds_Topoisomerase.csv", row.names = 1)
+Topoisomerase_null_matrix_sum = read.csv("./1000seeds_Topoisomerase.csv", row.names = 1)
 Topoisomerase_null_matrix_sum = cbind(Topoisomerase_null_matrix_sum, S_null_matrix_sum[rownames(Topoisomerase_null_matrix_sum), grepl('Topoisomerase', colnames(S_null_matrix_sum))])
 dim(Topoisomerase_null_matrix_sum)
-Kinase_null_matrix_sum = read.csv("D:/chh/2023workProject/prottalk/code/differ analysis20230822/Ttest20260324/1000seeds_Kinase.csv", row.names = 1)
+Kinase_null_matrix_sum = read.csv("./1000seeds_Kinase.csv", row.names = 1)
 Kinase_null_matrix_sum = cbind(Kinase_null_matrix_sum, S_null_matrix_sum[rownames(Kinase_null_matrix_sum), grepl('Kinase', colnames(S_null_matrix_sum), ignore.case = T)])
 dim(Kinase_null_matrix_sum)
-PARP_null_matrix_sum = read.csv("D:/chh/2023workProject/prottalk/code/differ analysis20230822/Ttest20260324/1000seeds_PARP.csv", row.names = 1)
+PARP_null_matrix_sum = read.csv("./1000seeds_PARP.csv", row.names = 1)
 PARP_null_matrix_sum = cbind(PARP_null_matrix_sum, S_null_matrix_sum[rownames(PARP_null_matrix_sum), grepl('PARP', colnames(S_null_matrix_sum))])
 dim(PARP_null_matrix_sum)
-CDK_null_matrix_sum = read.csv("D:/chh/2023workProject/prottalk/code/differ analysis20230822/Ttest20260324/1000seeds_CDK.csv", row.names = 1)
+CDK_null_matrix_sum = read.csv("./1000seeds_CDK.csv", row.names = 1)
 CDK_null_matrix_sum = cbind(CDK_null_matrix_sum, S_null_matrix_sum[rownames(CDK_null_matrix_sum), grepl('CDK', colnames(S_null_matrix_sum))])
 dim(CDK_null_matrix_sum)
-hormonal_null_matrix_sum = read.csv("D:/chh/2023workProject/prottalk/code/differ analysis20230822/Ttest20260324/1000seeds_hormonal.csv", row.names = 1)
+hormonal_null_matrix_sum = read.csv("./1000seeds_hormonal.csv", row.names = 1)
 hormonal_null_matrix_sum = cbind(hormonal_null_matrix_sum, S_null_matrix_sum[rownames(hormonal_null_matrix_sum), grepl('hormonal', colnames(S_null_matrix_sum))])
 dim(hormonal_null_matrix_sum)
-ALK_null_matrix_sum = read.csv("D:/chh/2023workProject/prottalk/code/differ analysis20230822/Ttest20260324/1000seeds_ALK.csv", row.names = 1)
+ALK_null_matrix_sum = read.csv("./1000seeds_ALK.csv", row.names = 1)
 ALK_null_matrix_sum = cbind(ALK_null_matrix_sum, S_null_matrix_sum[rownames(ALK_null_matrix_sum), grepl('ALK', colnames(S_null_matrix_sum))])
 dim(ALK_null_matrix_sum)
-antimitotic_null_matrix_sum = read.csv("D:/chh/2023workProject/prottalk/code/differ analysis20230822/Ttest20260324/1000seeds_antimitotic.csv", row.names = 1)
+antimitotic_null_matrix_sum = read.csv("./1000seeds_antimitotic.csv", row.names = 1)
 antimitotic_null_matrix_sum = cbind(antimitotic_null_matrix_sum, S_null_matrix_sum[rownames(antimitotic_null_matrix_sum), grepl('antimitotic', colnames(S_null_matrix_sum))])
 dim(Topoisomerase_null_matrix_sum)
 
@@ -176,14 +176,14 @@ for (sb2_tt in colnames(S_obs)) {
 }
 protein_FDR_sb2$Gene = human_gene[rownames(protein_FDR_sb2), 2]
 gc()
-xlsx::write.xlsx(protein_FDR_sb2, 'D:/chh/2023workProject/prottalk/code/differ analysis20230822/Ttest20260324_1000seeds_sb2time_pertscore.xlsx', sheetName = 'protein_FDR_sb2' )
+xlsx::write.xlsx(protein_FDR_sb2, './Ttest20260324_1000seeds_sb2time_pertscore.xlsx', sheetName = 'protein_FDR_sb2' )
 
 empirical_FDR_res = data.frame(empirical_FDR_res)
 colnames(empirical_FDR_res) = c('subtype', 'empirical_FDR0.01', 'empirical_FDR0.05', 'empirical_FDR0.1')
 for (i in c('empirical_FDR0.01', 'empirical_FDR0.05', 'empirical_FDR0.1')) {
   empirical_FDR_res[i] = as.numeric(empirical_FDR_res[, i])
 }
-xlsx::write.xlsx(empirical_FDR_res, 'D:/chh/2023workProject/prottalk/code/differ analysis20230822/Ttest20260324_1000seeds_sb2time_pertscore.xlsx', sheetName = 'empirical_FDR_count', append = T)
+xlsx::write.xlsx(empirical_FDR_res, './Ttest20260324_1000seeds_sb2time_pertscore.xlsx', sheetName = 'empirical_FDR_count', append = T)
 
 dim(protein_FDR_sb2)
 
@@ -251,11 +251,11 @@ S_obs_6sb2 = data.frame( row.names = rownames(S_obs))
 for (i in c( "ALK", "antimitotic", "Kinase", "CDK",  "Topoisomerase", 'PARP')) {
   S_obs_6sb2[,i] = rowSums(S_obs[grepl(i, colnames(S_obs))])
 }
-write.xlsx(S_obs_6sb2, 'D:/chh/2023workProject/prottalk/code/differ analysis20230822/Ttest20260324_1000seeds_pertscore.xlsx', rowNames = T)
-xlsx::write.xlsx(protein_FDR_result, 'D:/chh/2023workProject/prottalk/code/differ analysis20230822/Ttest20260324_1000seeds_pertscore.xlsx',append = T, sheetName = 'empirical_FDR')
+write.xlsx(S_obs_6sb2, './Ttest20260324_1000seeds_pertscore.xlsx', rowNames = T)
+xlsx::write.xlsx(protein_FDR_result, './Ttest20260324_1000seeds_pertscore.xlsx',append = T, sheetName = 'empirical_FDR')
 
-S_obs_6sb2 = read.xlsx('D:/chh/2023workProject/prottalk/code/differ analysis20230822/Ttest20260324_1000seeds_pertscore.xlsx', sheet = 1, rowNames = T)
-protein_FDR_result = read.xlsx('D:/chh/2023workProject/prottalk/code/differ analysis20230822/Ttest20260324_1000seeds_pertscore.xlsx', sheet = 'empirical_FDR', rowNames = T)
+S_obs_6sb2 = read.xlsx('./Ttest20260324_1000seeds_pertscore.xlsx', sheet = 1, rowNames = T)
+protein_FDR_result = read.xlsx('./Ttest20260324_1000seeds_pertscore.xlsx', sheet = 'empirical_FDR', rowNames = T)
 
 S_obs_6sb2 = subset(S_obs_6sb2, !grepl(':', rownames(S_obs_6sb2)) & !grepl(';', rownames(S_obs_6sb2)))
 protein_FDR_result = subset(protein_FDR_result, !grepl(':', rownames(protein_FDR_result)) & !grepl(';', rownames(protein_FDR_result)))
@@ -295,7 +295,7 @@ df1 = df1[narow!=0, ]
 df1$geneSymbol = human_gene[rownames(df1), 2]
 colnames(df1)
 df1 = df1[c("geneSymbol", "ALK", "antimitotic", "CDK", "Kinase", "PARP",  "Topoisomerase")]
-write.xlsx(df1, 'D:/chh/2023workProject/prottalk/code/differ analysis20230822/Ttest20260324_1000seeds_pertscore_empiricalFDR0.05_absthan10.xlsx', rowNames = T)
+write.xlsx(df1, './Ttest20260324_1000seeds_pertscore_empiricalFDR0.05_absthan10.xlsx', rowNames = T)
 
 
 times = list()
@@ -364,5 +364,5 @@ for (i in colnames(df1)[1:6]) {
           axis.text = element_text(size = 15, color = 'black'),
           axis.title = element_blank()
     )
-  ggsave(paste0('//172.16.13.136/share/members/sunr/PTV1/PTV1_honghan/empirical_FDR/subtype_pertscore_plot_FDR0.05_', i, '.pdf'), p1)
+  ggsave(paste0('./subtype_pertscore_plot_FDR0.05_', i, '.pdf'), p1)
 }

@@ -36,7 +36,7 @@ for (gene in rownames(out)){
   genesymbol = c(genesymbol, df_pre[gene, "geneSymbol"])
 }
 out$geneSymbol = genesymbol
-write.csv(out[c("geneSymbol", "Pvalue", "FDR")], paste0("~/prottalk/code/vulnerableGeneComparison/ANOVA_Mfuzz/Basal", basal, "_", sb,  "_", cell, "_anova.csv"))
+write.csv(out[c("geneSymbol", "Pvalue", "FDR")], paste0( basal, "_", sb,  "_", cell, "_anova.csv"))
 out = out[!is.na(out$Pvalue), ]
 out = subset(out, out$Pvalue<0.05)
 if (nrow(out) < 3){next}
@@ -54,7 +54,7 @@ tmp <- filter.std(dt.f, min.std=0)
 dt.s <- standardise(tmp)
 m1 <- mestimate(dt.s)
 cl <- mfuzz(dt.s, c = 3, m = m1 )
-pdf(paste0("~/prottalk/code/vulnerableGeneComparison/ANOVA_Mfuzz/Basal", basal, "_", sb, "_", cell, "_Mfuzz.pdf"), width = 10)
+pdf(paste0( basal, "_", sb, "_", cell, "_Mfuzz.pdf"), width = 10)
 mfuzz.plot(dt.s,cl, mfrow=c(2,4),
            new.window= FALSE,
            time.labels = colnames(dt.s),
@@ -62,6 +62,6 @@ mfuzz.plot(dt.s,cl, mfrow=c(2,4),
 dev.off()
 protein_cluster <- cl$cluster
 protein_cluster <- cbind(mat[names(protein_cluster), ], protein_cluster)
-write.csv(protein_cluster, paste0("~/prottalk/code/vulnerableGeneComparison/ANOVA_Mfuzz/Basal", basal, "_", sb, "_", cell, "_MfuzzCluster.csv"))
+write.csv(protein_cluster, paste0( basal, "_", sb, "_", cell, "_MfuzzCluster.csv"))
 member = cl$membership
-write.csv(member, paste0("~/prottalk/code/vulnerableGeneComparison/ANOVA_Mfuzz/Basal", basal, "_", sb, "_", cell, "_MfuzzClusterMembership.csv"))
+write.csv(member, paste0( basal, "_", sb, "_", cell, "_MfuzzClusterMembership.csv"))
