@@ -24,7 +24,7 @@ def plot_roc_curve(fpr, tpr, auroc, save_dir, title="ROC Curve"):
         plt.legend(loc="lower right")
         plt.grid(True, alpha=0.3)
 
-        # Save figure
+        
         plt.tight_layout()
         plt.savefig(os.path.join(save_dir, 'roc_curve.png'), dpi=300)
         plt.savefig(os.path.join(save_dir, 'roc_curve.pdf'))
@@ -55,7 +55,7 @@ def plot_pr_curve(precision, recall, auprc, save_dir, title="Precision-Recall Cu
         plt.legend(loc="lower left")
         plt.grid(True, alpha=0.3)
 
-        # Save figure
+        
         plt.tight_layout()
         plt.savefig(os.path.join(save_dir, 'pr_curve.pdf'), dpi=300)
         plt.close()

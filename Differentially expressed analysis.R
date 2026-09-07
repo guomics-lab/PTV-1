@@ -1,4 +1,3 @@
-# this function is single drug datasets, a is the starting index of 1st group, b is the ending index of 1st group, c is the starting index of 2nd group, d is the ending index of 2nd group
 ttest <- function(exp, a, b, c, d){
   Pvalue <- c()
   FC = c()
@@ -24,7 +23,6 @@ ttest <- function(exp, a, b, c, d){
   out
 }
 
-# this function is combine drug datasets, a is the starting index of 1st group, b is the ending index of 1st group, c is the starting index of 2nd group, d is the ending index of 2nd group
 ttest.D <- function(exp, a, b, c, d){
   Pvalue <- c()
   FC = c()

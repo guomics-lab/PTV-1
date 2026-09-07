@@ -14,7 +14,7 @@ def get_args():
     """
     parser = argparse.ArgumentParser()
 
-    # Directory and file settings
+    
     parser.add_argument("--dir_save", type=str, default="./results",
                         help="Base directory for saving results")
     parser.add_argument("--dataset_file_dir", type=str, required=True,
@@ -29,7 +29,7 @@ def get_args():
                         choices=["6_24_48"],
                         help="Time points used for drug prediction")
 
-    # Training parameters
+    
     parser.add_argument("--total_epoch", type=int, default=1000,
                         help="Total number of epochs")
     parser.add_argument("--patience", type=int, default=500,
@@ -45,13 +45,13 @@ def get_args():
     parser.add_argument("--tol", type=float, default=1e-3,
                         help="Tolerance for ODE solver")
 
-    # Model architecture parameters
+    
     parser.add_argument("--hidden_size", type=int, default=64,
                         help="Hidden layer size for the model")
     parser.add_argument("--dropout_rate", type=float, default=0.0,
                         help="Dropout rate for the model")
 
-    # Optimizer and learning rate parameters
+    
     parser.add_argument("--optimizer", type=str, default="adamw",
                         choices=["sgd", "adam", "adamw"],
                         help="Optimizer to use (sgd, adam, or adamw)")
@@ -66,7 +66,7 @@ def get_args():
     parser.add_argument("--clip_grad_norm", type=float, default=1.0,
                         help="Gradient clipping norm")
 
-    # Checkpoint handling
+    
     parser.add_argument("--cp_save_dir_best", type=str, default="",
                         help="Path to a model checkpoint for prediction")
     parser.add_argument("--train_from_scratch", type=str, default="from_scratch",
@@ -75,7 +75,7 @@ def get_args():
     parser.add_argument("--check_time_point", type=int, default=48,
                         help="Time point to check whether there is info in the data")
 
-    # Loss calculation parameters
+   
     parser.add_argument("--lambda_pheno", type=float, default=0.8,
                         help="Weight for phenotype prediction loss")
 
@@ -86,7 +86,7 @@ def get_args():
     parser.add_argument("--cancer_type", type=str, default=None,
                         help="file save cancer type")
 
-    # SWAG parameters
+    
     parser.add_argument("--use_swag", action="store_true",
                         help="Use SWAG (Stochastic Weight Averaging-Gaussian)")
     parser.add_argument("--swag_lr", type=float, default=0.0005,
@@ -105,13 +105,13 @@ def get_args():
 
     args = parser.parse_args()
 
-    # Process args and set derived parameters
+    
     if args.train_from_scratch == "from_scratch" and args.cp_save_dir_best == "":
         args.from_scratch = True
     else:
         args.from_scratch = False
 
-    # Ensure test_percent is valid if not specified
+    
     if args.test_percent < 1e-6:
         args.test_percent = 1 - args.train_percent - args.val_percent
 
@@ -122,10 +122,10 @@ def setup_device(args):
     Set up and return the device (CPU/GPU) to use
     """
 
-    # Set device
+    
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    # Set seeds for reproducibility
+    
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     torch.manual_seed(args.random_seed)
@@ -139,10 +139,10 @@ def setup_directories(args):
     Set up directories for saving checkpoints and results
     """
 
-    # Create a unique hash for this run
+    
     hash_value = hashlib.sha256(str(datetime.datetime.now()).encode("utf8"))
 
-    # Create directory for saving checkpoints
+    
     dir_save = os.path.join(args.dir_save,
                            args.taskname_prefix + args.time_stamp_predict_drug + 'h_' + hash_value.hexdigest() + '/')
 

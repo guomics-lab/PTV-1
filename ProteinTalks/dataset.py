@@ -11,9 +11,9 @@ def str_to_list(s):
     Convert string representation of a list to an actual list
     """
     if s is not None and not pd.isna(s):
-        s = s.replace("nan", "None")  # Replace "np.nan" with "None"
-        lst = ast.literal_eval(s)  # Convert string to list
-        return [x if x is not None else np.nan for x in lst]  # Replace None back to np.nan
+        s = s.replace("nan", "None")  
+        lst = ast.literal_eval(s)  
+        return [x if x is not None else np.nan for x in lst]  
     else:
         return s
 
@@ -32,7 +32,7 @@ class ProteomicsDataset(Dataset):
         """
         loo_label_name = True
 
-        # Load data files
+        
         self.nodes = pd.read_csv(os.path.join(data_dir, cellline + "node_Index.csv"), header=None)
         expr = pd.read_csv(os.path.join(data_dir, cellline + "expr.csv"), header=None)
         drug_fp_phychemA = pd.read_csv(os.path.join(data_dir, cellline + "drug_fp_phychem_A.csv"), header=None)
@@ -55,12 +55,12 @@ class ProteomicsDataset(Dataset):
         self.xdrugb = []
         self.experiment_types = []
 
-        # Process all experiment types
+        
         all_experiment_type_redu = np.sort(list(set(loo_label[0])))
-        all_experiment_type = [i for i in all_experiment_type_redu if "#" in i]  # Only select valid experiments
+        all_experiment_type = [i for i in all_experiment_type_redu if "#" in i]  
 
         for experiment_type in all_experiment_type:
-            # Check if data exists for all required time points
+            
             has_all_timepoints = (
                 len(loo_label[(loo_label[0] == experiment_type) & (loo_label[1] == 6)]) != 0 and
                 len(loo_label[(loo_label[0] == experiment_type) & (loo_label[1] == 24)]) != 0 and
@@ -68,17 +68,17 @@ class ProteomicsDataset(Dataset):
             )
 
             if has_all_timepoints:
-                pattern = re.escape(experiment_type.split('_')[0])  # Only cellline
+                pattern = re.escape(experiment_type.split('_')[0])  
                 self.celllines.append(pattern)
 
-                # Check if data exists at the check time point
+                
                 if check_time_point == 0:
                     test_command = loo_label[(loo_label[0] == experiment_type) & (loo_label[1] == int(check_time_point))].index[0]
                 else:
                     test_command = loo_label[(loo_label[0].str.contains(pattern)) & (loo_label[1] == int(0))].index[0]
 
                 if (expr.loc[test_command]).any():
-                    # Get x data (baseline expression)
+                    
                     timepoint = timepoint_x
                     pattern = re.escape(experiment_type.split('_')[0])
                     x_values = expr.loc[loo_label[(loo_label[0].str.contains(pattern)) & (loo_label[1] == int(timepoint))].index[0]].values[0:]
@@ -87,7 +87,7 @@ class ProteomicsDataset(Dataset):
                     x_norm = (x - x_min) / (x_max - x_min)
                     self.x_data.append(x_norm)
 
-                    # Get y data (expression at different time points)
+                    
                     y_norm_6_24_48 = []
                     for timepoint_y in [timepoint_y1, timepoint_y2, timepoint_y3]:
                         timepoint = timepoint_y
@@ -98,7 +98,7 @@ class ProteomicsDataset(Dataset):
                         y_norm_6_24_48.append(y_norm)
                     self.y_data.append(torch.stack(y_norm_6_24_48, dim=0))
 
-                    # Get drug features
+                    
                     xdruga = drug_fp_phychemA.loc[loo_label[(loo_label[0] == experiment_type) & (loo_label[1] == int(timepoint))].index[0]].values[0]
                     xdrugb = drug_fp_phychemB.loc[loo_label[(loo_label[0] == experiment_type) & (loo_label[1] == int(timepoint))].index[0]].values[0]
 
@@ -109,7 +109,7 @@ class ProteomicsDataset(Dataset):
                         print(f"Error with experiment_type: {experiment_type}")
                         continue
 
-                    # Normalize drug features
+                    
                     xdruga_min, xdruga_max = torch.min(xdruga), torch.max(xdruga)
                     xdruga_norm = (xdruga - xdruga_min) / (xdruga_max - xdruga_min)
                     xdrugb_min, xdrugb_max = torch.min(xdrugb), torch.max(xdrugb)
@@ -117,12 +117,12 @@ class ProteomicsDataset(Dataset):
                     self.xdruga.append(xdruga_norm)
                     self.xdrugb.append(xdrugb_norm)
 
-                    # Get perturbation data
+                    
                     pert_values = pert.loc[loo_label[loo_label[0] == experiment_type].index[0]].values[0:]
                     pert_tensor = torch.tensor(pert_values).float().unsqueeze(1)
                     self.pert_data.append(pert_tensor)
 
-                    # Get drug-efficacy or combination-synergy labels
+                    
                     pheno_values = float(pheno.loc[loo_label[loo_label[0] == experiment_type].index[0]].values)
                     if np.isnan(pheno_values):
                         pheno_tensor = torch.tensor(0.0).float()
@@ -161,7 +161,7 @@ def clean_dataset(dataset):
         for tensor in sample:
             if torch.isnan(tensor).any():
                 contains_nan = True
-                tensor[torch.isnan(tensor)] = torch.tensor(1e-6, dtype=torch.float32)  # Replace NaN with small value
+                tensor[torch.isnan(tensor)] = torch.tensor(1e-6, dtype=torch.float32)  
         if contains_nan:
             nan_samples.append(idx)
 
@@ -186,7 +186,7 @@ def prepare_data(args):
     print(f"Dataset size: {len(dataset)}")
     print(f"Samples with NaN: {len(nan_samples)}")
 
-    # Create test dataset if separate file is provided
+    
     test_dataloader = None
     if args.test_file_prefix != "":
         test_dataset = ProteomicsDataset(args.test_file_prefix, args.dataset_file_dir, args.check_time_point)
@@ -199,13 +199,13 @@ def prepare_data(args):
         pos_percent_test = torch.mean(all_pheno_test).item()
         print(f"Positive percent test: {pos_percent_test:.4f}")
 
-    # Split dataset into train, validation, and test sets
+    
     if args.test_percent < 1e-6:
         train_size = int(args.train_percent * len(dataset))
         val_size = len(dataset) - train_size
         train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
-        # Save dataset indices
+        
         torch.save(train_dataset.indices, os.path.join(args.dir_save, 'train_indices.pt'))
         torch.save(val_dataset.indices, os.path.join(args.dir_save, 'val_indices.pt'))
     else:
@@ -214,7 +214,7 @@ def prepare_data(args):
         test_size = len(dataset) - train_size - validation_size
         train_dataset, val_dataset, test_dataset = random_split(dataset, [train_size, validation_size, test_size])
 
-        # Save dataset indices
+        
         torch.save(train_dataset.indices, os.path.join(args.dir_save, 'train_indices.pt'))
         torch.save(val_dataset.indices, os.path.join(args.dir_save, 'val_indices.pt'))
         torch.save(test_dataset.indices, os.path.join(args.dir_save, 'test_indices.pt'))
@@ -224,7 +224,7 @@ def prepare_data(args):
         all_pheno_test = torch.tensor([i[3] for i in test_dataset])
         pos_percent_test = torch.mean(all_pheno_test).item()
 
-    # Calculate class imbalance
+    
     all_pheno_train = torch.tensor([i[3] for i in train_dataset])
     pos_percent_train = torch.mean(all_pheno_train).item()
     print(f"Positive percent train: {pos_percent_train:.4f}")
@@ -233,11 +233,11 @@ def prepare_data(args):
     pos_percent_val = torch.mean(all_pheno_val).item()
     print(f"Positive percent val: {pos_percent_val:.4f}")
 
-    # Create dataloaders
+    
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     validation_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
 
-    # Collect class balance information
+    
     pos_percent_info = {
         'train': pos_percent_train,
         'val': pos_percent_val
@@ -261,7 +261,7 @@ def prepare_testdata(args):
         pos_percent_info: Dictionary containing class imbalance information
     """
 
-    # Create test dataset
+    
     assert args.test_file_prefix != "", "provide test file"
     test_dataloader = None
     if args.test_file_prefix != "":

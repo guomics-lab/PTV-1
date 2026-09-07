@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 
 """
 SWAG (Stochastic Weight Averaging-Gaussian) for ProteinTalks.
@@ -37,18 +36,18 @@ class SWAG(torch.optim.Optimizer):
         self.state = base_optimizer.state
         self.defaults = base_optimizer.defaults
 
-        # SWAG specific parameters
+        
         self.swa_start = swa_start
         self.swa_freq = swa_freq
         self.swa_lr = swa_lr
         self.max_num_models = max_num_models
         self.var_clamp = var_clamp
 
-        # SWAG state
+        
         self.n_models = 0
         self.collected_models = []
 
-        # Initialize SWAG state (will be done lazily on first update)
+        
         self._swag_initialized = False
 
     def _initialize_swag_state(self):
@@ -61,7 +60,7 @@ class SWAG(torch.optim.Optimizer):
         for group in self.param_groups:
             for p in group['params']:
                 if p.requires_grad:
-                    # Ensure parameter has state entry
+                    
                     if p not in self.state:
                         self.state[p] = {}
 
@@ -74,7 +73,7 @@ class SWAG(torch.optim.Optimizer):
         """
         Update SWAG statistics with current model parameters
         """
-        # Initialize SWAG state if not already done
+        
         self._initialize_swag_state()
 
         for group in self.param_groups:
@@ -82,20 +81,20 @@ class SWAG(torch.optim.Optimizer):
                 if p.requires_grad:
                     param_state = self.state[p]
 
-                    # Update first moment (mean)
+                    
                     if self.n_models == 0:
                         param_state['swag_mean'].copy_(p.data)
                         param_state['swag_sq_mean'].copy_(p.data ** 2)
                     else:
-                        # Running average
+                        
                         param_state['swag_mean'].mul_(self.n_models / (self.n_models + 1.0))
                         param_state['swag_mean'].add_(p.data / (self.n_models + 1.0))
 
-                        # Running average of squared parameters
+                        
                         param_state['swag_sq_mean'].mul_(self.n_models / (self.n_models + 1.0))
                         param_state['swag_sq_mean'].add_((p.data ** 2) / (self.n_models + 1.0))
 
-        # Store model for low-rank plus diagonal covariance
+        
         if len(self.collected_models) < self.max_num_models:
             model_dict = OrderedDict()
             for group in self.param_groups:
@@ -104,7 +103,7 @@ class SWAG(torch.optim.Optimizer):
                         model_dict[id(p)] = p.data.clone()
             self.collected_models.append(model_dict)
         else:
-            # Replace oldest model (circular buffer)
+            
             idx = self.n_models % self.max_num_models
             model_dict = OrderedDict()
             for group in self.param_groups:
@@ -133,7 +132,7 @@ class SWAG(torch.optim.Optimizer):
         if self.n_models == 0:
             raise RuntimeError("No SWAG models collected yet")
 
-        # Ensure SWAG state is initialized
+        
         self._initialize_swag_state()
 
         sampled_params = OrderedDict()
@@ -143,18 +142,18 @@ class SWAG(torch.optim.Optimizer):
                 if p.requires_grad:
                     param_state = self.state[p]
 
-                    # Get mean and diagonal variance
+                    
                     mean = param_state['swag_mean']
                     sq_mean = param_state['swag_sq_mean']
                     var = torch.clamp(sq_mean - mean ** 2, self.var_clamp)
 
-                    # Sample from diagonal Gaussian
+                    
                     eps = torch.randn_like(mean)
                     sample = mean + scale * torch.sqrt(var) * eps
 
-                    # Add low-rank component if requested and available
+                    
                     if cov and len(self.collected_models) > 1:
-                        # Compute deviation matrix
+                        
                         deviations = []
                         for model_dict in self.collected_models:
                             if id(p) in model_dict:
@@ -162,9 +161,9 @@ class SWAG(torch.optim.Optimizer):
                                 deviations.append(dev)
 
                         if deviations:
-                            deviation_matrix = torch.stack(deviations, dim=1)  # [param_dim, num_models]
+                            deviation_matrix = torch.stack(deviations, dim=1)  
 
-                            # Sample from low-rank component
+                            
                             K = deviation_matrix.shape[1]
                             z = torch.randn(K, device=deviation_matrix.device)
                             low_rank_sample = torch.mv(deviation_matrix, z) / np.sqrt(K - 1)
@@ -186,7 +185,7 @@ class SWAG(torch.optim.Optimizer):
         if self.n_models == 0:
             return
 
-        # Ensure SWAG state is initialized
+        
         self._initialize_swag_state()
 
         for group in self.param_groups:
@@ -215,11 +214,11 @@ class SWAG(torch.optim.Optimizer):
         Args:
             closure: A closure that reevaluates the model and returns the loss
         """
-        # Set learning rate to SWAG learning rate
+        
         for group in self.param_groups:
             group['lr'] = self.swa_lr
 
-        # Perform base optimizer step
+       
         loss = self.base_optimizer.step(closure)
         return loss
 
@@ -253,11 +252,11 @@ class SWAG(torch.optim.Optimizer):
                 if p.requires_grad:
                     total_params += p.numel()
 
-        # Each collected model stores a copy of all parameters
-        model_memory = total_params * len(self.collected_models) * 4  # assuming float32
+        
+        model_memory = total_params * len(self.collected_models) * 4  
 
-        # Mean and squared mean
-        statistics_memory = total_params * 2 * 4  # float32
+        
+        statistics_memory = total_params * 2 * 4  
 
         return {
             'total_params': total_params,
@@ -282,15 +281,15 @@ def update_bn(loader, model, device=None):
 
     model.train()
 
-    # Reset BatchNorm statistics
+    
     for module in model.modules():
         if isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
             module.reset_running_stats()
         elif hasattr(module, 'reset_running_stats'):
             module.reset_running_stats()
 
-    # Update statistics with limited number of batches to save time
-    max_batches = min(len(loader), 100)  # Limit to 100 batches for efficiency
+    
+    max_batches = min(len(loader), 100)  
 
     with torch.no_grad():
         for i, batch in enumerate(loader):
@@ -299,30 +298,30 @@ def update_bn(loader, model, device=None):
 
             try:
                 if isinstance(batch, (list, tuple)) and len(batch) >= 6:
-                    # Neural ODE model expects: x, pert, fp_phA, fp_phB, time_stamp
+                    
                     x = batch[0].to(device)
                     pert = batch[1].to(device)
                     fp_phA = batch[4].to(device)
                     fp_phB = batch[5].to(device)
 
-                    # Use 'all' as default time stamp for BN update
+                    
                     time_stamp = 'all'
 
-                    # Forward pass to update BN stats
+                    
                     _ = model(x, pert, fp_phA, fp_phB, time_stamp)
 
                 elif isinstance(batch, (list, tuple)):
-                    # Fallback for simpler batch format
+                    
                     x = batch[0].to(device)
                     _ = model(x)
                 else:
-                    # Single tensor batch
+                    
                     x = batch.to(device)
                     _ = model(x)
 
             except Exception as e:
                 print(f"Warning: Could not update BN stats for batch {i}: {e}")
-                # Continue with next batch instead of breaking
+                
                 continue
 
     print(f"Updated BatchNorm statistics using {min(max_batches, len(loader))} batches")
@@ -355,20 +354,20 @@ class SWAGCallback:
             return False
 
         if self.initial_lr is None:
-            # Store initial learning rate
+            
             if hasattr(scheduler, 'base_lrs'):
                 self.initial_lr = scheduler.base_lrs[0]
             else:
                 self.initial_lr = scheduler.optimizer.param_groups[0]['lr']
 
-        # Check conditions for starting SWAG
+        
         current_lr = scheduler.optimizer.param_groups[0]['lr']
 
-        # Condition 1: Recent LR reduction + patience reset
+        
         plateau_ready = (hasattr(scheduler, 'num_bad_epochs') and
                         scheduler.num_bad_epochs == 0)
 
-        # Condition 2: LR dropped significantly
+        
         lr_dropped = current_lr < self.initial_lr * self.min_lr_factor
 
         return plateau_ready and lr_dropped
@@ -383,7 +382,7 @@ class SWAGCallback:
         if not self.swag_started:
             print(f'Starting SWAG at epoch {epoch}, lr reset to {self.swag_optimizer.swa_lr}')
 
-            # Reset learning rate to SWAG learning rate
+            
             for group in self.swag_optimizer.param_groups:
                 group['lr'] = self.swag_optimizer.swa_lr
 

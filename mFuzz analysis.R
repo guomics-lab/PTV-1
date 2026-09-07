@@ -1,4 +1,4 @@
-## One-way analysis of variance (ANOVA) 
+ 
 anova_func <- function(exp, a, b, c, d){
   type<- c(rep("0hrs", a),rep("6hrs", b),rep("24hrs", c),rep("48hrs", d) ) 
   Pvalue = c()
@@ -25,7 +25,7 @@ anova_func <- function(exp, a, b, c, d){
   out
 }
 
-## Mfuzz
+
 library(Mfuzz)
 library(RColorBrewer)
 mycol <- c("cyan","yellow","orangered")

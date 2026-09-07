@@ -5,15 +5,12 @@ library(ggsci)
 library(foreach)
 library(doParallel)
 
-#### EF ####
-#Ttest20260324/ptv1_Ttest_drug_cell_time20260324.R
 
-#### 20260320 subtype time ####
 files = list.files('./', pattern = '*xlsx')
 files_obs = files[grepl('hrs_ttest20260307', files)]
 files_obs = sort(files_obs)
 temp = read.xlsx(paste0('./', files_obs[1]), rowNames = T)
-cl <- makeCluster(6)  # 创建一个4核心的集群
+cl <- makeCluster(6)  
 registerDoParallel(cl)
 result <- foreach(f = files_obs ) %dopar% {
   library(openxlsx)
@@ -27,25 +24,22 @@ res= data.frame(do.call(cbind, lapply(result, function(x) c(x, rep(NA, max(lengt
 colnames(res) = files_obs
 all_obs = res
 
-###### empirical_FDR abs else #3 ####
+
 S_obs = data.frame(row.names = rownames(all_obs))
 for (sb2 in c( "ALK", "antimitotic", "hormonal agent", "Kinase", "CDK",  "Topoisomerase", 'PARP') ) {
   if(is.na(sb2)) next
-  # sb2 = "ALK"
   d = unique(sampleInfoB[sampleInfoB$subtype2 %in% sb2, 'pert_id'])
   temp1 = all_obs[grepl(paste0(paste0(d,"_"), collapse = '|'), colnames(all_obs))]
-  # print(colnames(temp1))
+  
   
   for (i in c(6,24, 48)) {
     S_obs[ paste0(sb2, '_', i)] = rowSums(temp1[grepl(paste0('_', i, 'hrs'), colnames(temp1))], na.rm = T)
   }
-  # break
+  
 }
 head(S_obs)
 sort(colnames(S_obs))
-# write.xlsx(S_obs, './Ttest20260302_sb2time_pertscore20260320.xlsx', sheetName = 'obs', rowNames = T)
 
-# _drugsum_20260309
 files = list.files('./', pattern = '*xlsx')
 files_null = files[!grepl('_drugsum_', files) & grepl('seeds', files) & grepl('20260324', files)]
 files_null = sort(files_null)
@@ -62,7 +56,6 @@ cols = unlist(lapply(colnames(S_obs), function(x){
 colnames(S_null_matrix_sum) = cols
 
 for (f in files_null) {
-  # f = files_null[1]
   temp = read.xlsx(paste0('.4/', f), rowNames = T)
   colnames(temp) = gsub('X.', '#', colnames(temp), fixed = T)
   temp[is.na(temp)] = 0
@@ -72,7 +65,6 @@ for (f in files_null) {
   if(!(sb2 %in% c( "ALK", "antimitotic", "hormonal agent", "Kinase", "CDK",  "Topoisomerase", 'PARP') )) next
   
   for (tt in c(6,24, 48)) {
-    # tt = 6
     temp1 = temp[grepl(paste0(tt, '$'), colnames(temp))]
     S_null_matrix_sum[rownames(temp1), paste0(sb2, '_', tt, '_', seed_i)] = S_null_matrix_sum[rownames(temp1),paste0(sb2, '_', tt, '_', seed_i)] + rowSums(temp1, na.rm = T)
   }
@@ -84,7 +76,7 @@ dim(S_null_matrix_sum)
 rownames(S_null_matrix_sum) = gsub('[^0-9A-Za-z]', '.', rownames(S_null_matrix_sum))
 setdiff(rownames(PARP_null_matrix_sum), rownames(S_null_matrix_sum))
 
-# c( "ALK", "antimitotic", "hormonal agent", "Kinase", "CDK",  "Topoisomerase", 'PARP')
+
 Topoisomerase_null_matrix_sum = read.csv("./1000seeds_Topoisomerase.csv", row.names = 1)
 Topoisomerase_null_matrix_sum = cbind(Topoisomerase_null_matrix_sum, S_null_matrix_sum[rownames(Topoisomerase_null_matrix_sum), grepl('Topoisomerase', colnames(S_null_matrix_sum))])
 dim(Topoisomerase_null_matrix_sum)
@@ -113,7 +105,7 @@ c( "ALK", "antimitotic", "hormonal agent", "Kinase", "CDK",  "Topoisomerase", 'P
 empirical_FDR_res = c()
 protein_FDR_sb2 = data.frame(row.names = rownames(S_obs))
 for (sb2_tt in colnames(S_obs)) {
-  # sb2_tt = "ALK_6"
+  
   S_obs_sum = abs(S_obs[, sb2_tt])
   names(S_obs_sum) = rownames(S_obs)
   
@@ -133,7 +125,7 @@ for (sb2_tt in colnames(S_obs)) {
     S_null_matrix_sb2 = PARP_null_matrix_sum[grepl(paste0(sb2_tt, '_'), colnames(PARP_null_matrix_sum))]
   }
   S_null_matrix_sb2 = abs(S_null_matrix_sb2)
-  # S_null_matrix_sb2[1:3, 1:10]
+  
   
   unique_scores <- sort(unique(S_obs_sum), decreasing = TRUE)
   FDR_table <- data.frame(score = unique_scores,
@@ -141,13 +133,13 @@ for (sb2_tt in colnames(S_obs)) {
                           V_null = NA,
                           FDR = NA)
   for (i in seq_along(unique_scores)) {
-    # i=1
+    
     s0 <- unique_scores[i]
     
-    R_obs <- sum(S_obs_sum >= s0)# 真实数据
-    Vb <- colSums(S_null_matrix_sb2 >= s0)# null 每次 permutation 的 exceedance 数量
+    R_obs <- sum(S_obs_sum >= s0)
+    Vb <- colSums(S_null_matrix_sb2 >= s0)
     
-    E_V <- mean(Vb)# 期望假阳性数量
+    E_V <- mean(Vb)
     
     FDR_value <- E_V / R_obs
     
@@ -188,11 +180,11 @@ xlsx::write.xlsx(empirical_FDR_res, './Ttest20260324_1000seeds_sb2time_pertscore
 dim(protein_FDR_sb2)
 
 
-#### all in one ####
+
 seeds1000 = unique(gsub('.*_', '_', colnames(Topoisomerase_null_matrix_sum)))
 S_null_1000seed = data.frame(row.names = rownames(Topoisomerase_null_matrix_sum))
 for (i in seeds1000) {
-  # i = seeds1000[1]
+
   S_null_1000seed[,i] = ALK_null_matrix_sum[, grepl(paste0(i, '$'), colnames(ALK_null_matrix_sum))]+
     Kinase_null_matrix_sum[, grepl(paste0(i, '$'), colnames(Kinase_null_matrix_sum))]+
     CDK_null_matrix_sum[, grepl(paste0(i, '$'), colnames(CDK_null_matrix_sum))]+
@@ -211,7 +203,7 @@ S_obs_sum = abs(rowSums(S_obs[!grepl('hormonal', colnames(S_obs))]))
 names(S_obs_sum) = rownames(S_obs)
 S_null_matrix_sb2 = abs(S_null_1000seed)
 dim(S_null_matrix_sb2)
-# S_null_matrix_sb2[1:3, 1:10]
+
 
 unique_scores <- sort(unique(S_obs_sum), decreasing = TRUE)
 FDR_table <- data.frame(score = unique_scores,
@@ -219,13 +211,13 @@ FDR_table <- data.frame(score = unique_scores,
                         V_null = NA,
                         FDR = NA)
 for (i in seq_along(unique_scores)) {
-  # i=1
+ 
   s0 <- unique_scores[i]
   
-  R_obs <- sum(S_obs_sum >= s0)# 真实数据
-  Vb <- colSums(S_null_matrix_sb2 >= s0)# null 每次 permutation 的 exceedance 数量
+  R_obs <- sum(S_obs_sum >= s0)
+  Vb <- colSums(S_null_matrix_sb2 >= s0)
   
-  E_V <- mean(Vb)# 期望假阳性数量
+  E_V <- mean(Vb)
   
   FDR_value <- E_V / R_obs
   
@@ -244,7 +236,7 @@ protein_FDR_result <- data.frame(
   pertscore = S_obs_sum,
   empirical_FDR = protein_FDR
 )
-# protein_FDR_result$Gene = human_gene[rownames(protein_FDR_result), 2]
+
 nrow(subset(protein_FDR_result, empirical_FDR<0.05))
 
 S_obs_6sb2 = data.frame( row.names = rownames(S_obs))
@@ -269,24 +261,23 @@ for (cutoff in c(7,8,9,10,11,12 )) {
   df1 = df1[narow!=0, ]
   times[[paste0('cutoff', cutoff)]] = rownames(df1)
 }
-names(times) #<- c("6hrs", "24hrs", "48hrs")
+names(times) 
 
 upset(fromList(times), 
-      order.by = "freq",  # 主坐标系排序
-      number.angles = 0,  # 柱标倾角
+      order.by = "freq", 
+      number.angles = 0,  
       nsets = 10,
-      point.size = 3,  # 点大小
-      line.size = 1,  # 线粗细
-      #sets.x.label = "Datasets Size",  # x 标题
+      point.size = 3,  
+      line.size = 1, 
+      
       set_size.show = T,
-      #main.bar.color = "gray",
-      #sets.bar.color = "gray",
-      mainbar.y.label = "Count of Intersection",  # y 标题
-      sets.x.label = "Datasets Size",  # x 标题
-      text.scale = c(1.5, 1.5, 1.5, 1.5, 1.5, 1.5), # y 标题大小，y 刻度标签大小，datasetSize标题大小，datasetSize刻度标签大小，datasetSize分类标签大小，柱数字 大小
+      
+      mainbar.y.label = "Count of Intersection", 
+      sets.x.label = "Datasets Size", 
+      text.scale = c(1.5, 1.5, 1.5, 1.5, 1.5, 1.5), 
 )
 
-# empirical_FDR<0.05
+
 upset_mat_FDR0.05 = protein_FDR_result[protein_FDR_result$empirical_FDR<0.05, ]
 df1 = S_obs_6sb2[rownames(upset_mat_FDR0.05), ]
 df1[abs(df1)<=10] = NA
@@ -306,27 +297,26 @@ for (cutoff in c(7,8,9,10,11,12 )) {
   df1 = df1[narow!=0, ]
   times[[paste0('cutoff', cutoff)]] = rownames(df1)
 }
-names(times) #<- c("6hrs", "24hrs", "48hrs")
+names(times) 
 
 upset(fromList(times), 
-      order.by = "freq",  # 主坐标系排序
-      number.angles = 0,  # 柱标倾角
+      order.by = "freq",  
+      number.angles = 0,  
       nsets = 10,
-      point.size = 3,  # 点大小
-      line.size = 1,  # 线粗细
-      #sets.x.label = "Datasets Size",  # x 标题
+      point.size = 3,  
+      line.size = 1,  
+      
       set_size.show = T,
-      #main.bar.color = "gray",
-      #sets.bar.color = "gray",
-      mainbar.y.label = "Count of Intersection",  # y 标题
-      sets.x.label = "Datasets Size",  # x 标题
-      text.scale = c(1.5, 1.5, 1.5, 1.5, 1.5, 1.5), # y 标题大小，y 刻度标签大小，datasetSize标题大小，datasetSize刻度标签大小，datasetSize分类标签大小，柱数字 大小
+      
+      mainbar.y.label = "Count of Intersection",  
+      sets.x.label = "Datasets Size", 
+      text.scale = c(1.5, 1.5, 1.5, 1.5, 1.5, 1.5), 
 )
 
 library(ggsci)
 line_dat =c()
 for (i in names(times) ) {
-  # i = "cutoff7"
+  
   temp = upset_mat_FDR0.05[times[[i]], ]
   temp = temp[order(temp$empirical_FDR, decreasing = T), ]
   line_dat = rbind(line_dat, data.frame(rank_n = 1:nrow(temp), empirical_FDR = temp$empirical_FDR, cutoff = i))
@@ -338,7 +328,7 @@ line_dat$cutoff = factor(line_dat$cutoff, levels = unique(line_dat$cutoff))
 ggplot(line_dat, aes(rank_n, empirical_FDR, color = cutoff))+
   geom_line()+
   scale_color_d3()+
-  # geom_hline(yintercept = 0.05, linetype = "dashed")+
+  
   theme_classic()+
   theme(text = element_text(size = 15, color = 'black'),
         axis.text = element_text(size = 15, color = 'black') 

@@ -36,20 +36,20 @@ def check_early_stopping(early_stopping, val_loss, epoch):
           - stop_training: Boolean indicating if training should stop
           - save_model: Boolean indicating if model should be saved
     """
-    score = -val_loss  # Higher score is better
+    score = -val_loss  
     save_model = False
 
     if early_stopping['best_score'] is None:
-        # First epoch
+        
         early_stopping['best_score'] = score
         save_model = True
     elif score < early_stopping['best_score'] + early_stopping['delta']:
-        # Score didn't improve enough
+        
         early_stopping['counter'] += 1
         print(f"EarlyStopping counter: {early_stopping['counter']} out of {early_stopping['patience']}")
 
     else:
-        # Score improved, reset counter and save model
+        
         early_stopping['best_score'] = score
         early_stopping['counter'] = 0
         save_model = True

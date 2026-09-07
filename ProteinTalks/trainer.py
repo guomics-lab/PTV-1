@@ -35,9 +35,9 @@ class Trainer:
         self.scheduler = scheduler
         self.args = args
         self.device = device
-        self.criterion = nn.BCELoss()  # Binary Cross Entropy Loss
+        self.criterion = nn.BCELoss()  
 
-        # Setup early stopping
+        
         self.early_stopping = {
             'patience': args.patience,
             'counter': 0,
@@ -46,14 +46,14 @@ class Trainer:
             'delta': 0
         }
 
-        # SWAG setup
+        
         self.swag_optimizer = None
         self.swag_callback = None
         if args.use_swag:
             print("Setting up SWAG...")
             self.swag_optimizer = SWAG(
                 base_optimizer=optimizer,
-                swa_start=0,  # Will be set dynamically
+                swa_start=0,  
                 swa_freq=args.swag_freq,
                 swa_lr=args.swag_lr,
                 max_num_models=args.swag_max_models
@@ -68,22 +68,22 @@ class Trainer:
 
     def pearson_cor(self, outputs, targets):
         """Calculate Pearson correlation between predicted and actual protein expressions"""
-        # Move tensors to CPU and convert to numpy
+        
         outputs_np = outputs.detach().cpu().numpy()
         targets_np = targets.detach().cpu().numpy()
 
-        # Reshape if needed (handling batch dimension)
+        
         if len(outputs_np.shape) > 2:
             outputs_np = outputs_np.reshape(outputs_np.shape[0], -1)
             targets_np = targets_np.reshape(targets_np.shape[0], -1)
 
-        # Calculate correlation for each sample in the batch
+        
         correlations = []
         for i in range(outputs_np.shape[0]):
             corr = np.corrcoef(outputs_np[i], targets_np[i])[0, 1]
             correlations.append(corr)
 
-        # Return mean correlation across batch
+        
         return np.mean(correlations)
 
     def train_epoch(self, train_dataloader):
@@ -105,38 +105,38 @@ class Trainer:
         all_labels = []
         num_batches = len(train_dataloader)
 
-        # Determine which optimizer to use
+        
         current_optimizer = self.swag_optimizer if (self.swag_optimizer and
                                                     self.swag_callback and
                                                     self.swag_callback.swag_started) else self.optimizer
 
         for batch in train_dataloader:
-            # Clear gradients
+            
             current_optimizer.zero_grad()
 
-            # Get batch data
+            
             x, pert, y, pheno, fp_phA, fp_phB = [b.to(self.device) for b in batch]
 
-            # Forward pass
+            
             outputs, pheno_pred, _ = self.model(x, pert, fp_phA, fp_phB, self.args.time_stamp_predict_drug)
 
-            # Calculate losses
+            
             pro_loss = F.mse_loss(outputs, y)
             pheno_loss = self.criterion(pheno_pred, pheno)
 
-            # Calculate protein correlation
+            
             pro_corr = self.pearson_cor(outputs, y)
 
-            # Combined loss
+            
             loss = (1 - self.args.lambda_pheno) * pro_loss + self.args.lambda_pheno * pheno_loss
 
-            # Backward pass
+            
             loss.backward()
 
-            # Update weights using current optimizer
+            
             current_optimizer.step()
 
-            # Store metrics
+            
             total_loss += loss.item()
             total_pro_loss += pro_loss.item()
             total_pheno_loss += pheno_loss.item()
@@ -144,21 +144,21 @@ class Trainer:
             all_predictions.extend(pheno_pred.detach().cpu().numpy())
             all_labels.extend(pheno.detach().cpu().numpy())
 
-        # Convert to numpy arrays and ensure binary labels
+        
         all_predictions = np.array(all_predictions)
         all_labels = np.array(all_labels)
 
-        # Ensure binary labels (0 or 1)
+        
         all_labels = (all_labels > 0.5).astype(int)
         binary_predictions = (all_predictions > 0.5).astype(int)
 
         accuracy = accuracy_score(all_labels, binary_predictions)
 
-        # Calculate ROC curve
+        
         fpr, tpr, _ = roc_curve(all_labels, all_predictions, pos_label=1)
         auroc = auc(fpr, tpr)
 
-        # Calculate PR curve
+        
         precision, recall, _ = precision_recall_curve(all_labels, all_predictions, pos_label=1)
         auprc = average_precision_score(all_labels, all_predictions)
 
@@ -197,22 +197,22 @@ class Trainer:
 
         with torch.no_grad():
             for batch in validation_dataloader:
-                # Get batch data
+                
                 x, pert, y, pheno, fp_phA, fp_phB = [b.to(self.device) for b in batch]
 
-                # Forward pass
+                
                 outputs, pheno_pred, _ = self.model(x, pert, fp_phA, fp_phB, self.args.time_stamp_predict_drug)
 
-                # Calculate losses
+                
                 pro_loss = F.mse_loss(outputs, y)
                 pheno_loss = self.criterion(pheno_pred, pheno)
 
-                # Calculate protein correlation
+                
                 pro_corr = self.pearson_cor(outputs, y)
-                # Combined loss
+                
                 loss = (1 - self.args.lambda_pheno) * pro_loss + self.args.lambda_pheno * pheno_loss
 
-                # Store metrics
+                
                 total_loss += loss.item()
                 total_pro_loss += pro_loss.item()
                 total_pheno_loss += pheno_loss.item()
@@ -220,11 +220,11 @@ class Trainer:
                 all_predictions.extend(pheno_pred.cpu().numpy())
                 all_labels.extend(pheno.cpu().numpy())
 
-        # Convert to numpy arrays
+        
         all_predictions = np.array(all_predictions)
         all_labels = np.array(all_labels)
 
-        # Calculate metrics
+        
         binary_predictions = (all_predictions >= 0.5).astype(int)
 
         fpr, tpr, _ = roc_curve(all_labels, all_predictions)
@@ -277,13 +277,13 @@ class Trainer:
             metrics: Dictionary of validation metrics
             epoch: Current epoch
         """
-        # If this is the best model so far, save it
+        
         val_loss = metrics['pheno_loss']
         early_stopping_result = check_early_stopping(
             self.early_stopping, val_loss, epoch
         )
 
-        # Check if we need to stop training
+        
         if early_stopping_result['save_model']:
             best_checkpoint_path = os.path.join(
                 self.args.dir_save,
@@ -318,33 +318,33 @@ class Trainer:
 
         print("Starting training...")
 
-        # Phase tracking
+        
         swag_started = False
         current_optimizer = self.optimizer
 
         for epoch in range(self.args.total_epoch):
-            # ========== Phase Management ==========
+            
             if self.args.use_swag and self.swag_callback and not swag_started:
-                # Check if SWAG should start
+                
                 if self.swag_callback.should_start_swag(self.scheduler, epoch):
                     swag_started = self.swag_callback.start_swag(epoch)
                     if swag_started:
                         current_optimizer = self.swag_optimizer
-                        # Update SWAG start epoch
+                        
                         self.swag_optimizer.swa_start = epoch
                         print(f"SWAG phase started at epoch {epoch}")
 
-                        # Print memory requirements
+                        
                         mem_info = self.swag_optimizer.get_space_requirements()
                         print(f"SWAG memory requirements: {mem_info['total_memory_mb']:.1f} MB")
 
-            # Train for one epoch
+            
             train_metrics = self.train_epoch(train_dataloader)
 
-            # Validate model
+            
             val_metrics, _ = self.validate(validation_dataloader)
 
-            # ========== Scheduler and SWAG Management ==========
+            
             if swag_started:
                 collected = self.swag_callback.step(epoch)
                 if collected:
@@ -352,19 +352,19 @@ class Trainer:
             else:
                 self.scheduler.step(val_metrics['loss'])
 
-            # Define patience limit based on current phase
+           
             patience_limit = self.args.patience * 2 if swag_started else self.args.patience
 
-            # Save checkpoint if validation loss improved
+            
             if val_metrics['loss'] < best_val_loss:
                 best_val_loss = val_metrics['loss']
                 best_epoch = epoch
                 best_model_state = deepcopy(self.model.state_dict())
                 best_val_metrics = val_metrics
                 best_train_metrics = train_metrics
-                patience_counter = 0  # Reset patience counter
+                patience_counter = 0  
 
-                # Save best checkpoint
+                
                 checkpoint = {
                     'epoch': epoch,
                     'model_state_dict': best_model_state,
@@ -374,7 +374,7 @@ class Trainer:
                     'swag_started': swag_started,
                 }
 
-                # Add SWAG state if applicable
+                
                 if swag_started and self.swag_optimizer:
                     checkpoint['swag_state'] = {
                         'n_models': self.swag_optimizer.n_models,
@@ -391,12 +391,12 @@ class Trainer:
             else:
                 patience_counter += 1
 
-                # Early stopping check
+                
                 if patience_counter >= patience_limit:
                     print(f"\nEarly stopping triggered after {epoch} epochs")
                     break
 
-            # Print status every 200 epochs
+            
             if epoch % 200 == 0:
                 current_lr = current_optimizer.param_groups[0]['lr']
                 phase = "SWAG" if swag_started else "Normal"
@@ -412,25 +412,25 @@ class Trainer:
         print("\nBest Model Performance:")
         self._print_status(best_epoch, best_train_metrics, best_val_metrics)
 
-        # ========== Post-training SWAG Processing ==========
+        
         if swag_started and self.swag_optimizer and self.swag_optimizer.n_models > 0:
             print(f"\nSWAG training completed with {self.swag_optimizer.n_models} collected models")
 
-            # Set model to SWAG mean
+            
             print("Setting model to SWAG mean...")
             self.swag_optimizer.set_swag_mode(self.model)
 
-            # Update BatchNorm statistics
+            
             print("Updating BatchNorm statistics...")
             update_bn(train_dataloader, self.model, self.device)
 
-            # Evaluate SWAG mean model
+            
             print("Evaluating SWAG mean model...")
             val_metrics_swag, _ = self.validate(validation_dataloader)
             print("SWAG Mean Model Performance:")
             self._print_validation_results(val_metrics_swag)
 
-            # Save SWAG mean model
+            
             swag_checkpoint = {
                 'epoch': best_epoch,
                 'model_state_dict': self.model.state_dict(),
@@ -448,12 +448,12 @@ class Trainer:
             }
             torch.save(swag_checkpoint, os.path.join(self.args.dir_save, 'swag_mean_checkpoint.pt'))
 
-            # Evaluate with uncertainty estimation if test set is available
+            
             if test_dataloader is not None:
                 print("Evaluating SWAG with uncertainty estimation on test set...")
                 self._evaluate_swag_uncertainty(test_dataloader)
 
-        # Load best model for final test evaluation
+        
         if test_dataloader is not None:
             print("\nEvaluating best deterministic model on test set...")
             self.model.load_state_dict(best_model_state)
@@ -462,7 +462,7 @@ class Trainer:
             self._print_test_results(test_metrics)
             self._save_test_results(test_metrics, test_predictions)
 
-        # Save validation results for best checkpoint
+        
         self._save_validation_results(best_val_metrics, best_epoch)
 
         return best_val_metrics
@@ -481,7 +481,7 @@ class Trainer:
         self.model.eval()
         num_samples = min(self.args.swag_samples, self.swag_optimizer.n_models * 2)
 
-        # Collect predictions from multiple SWAG samples
+        
         all_sample_predictions = []
         all_sample_pro_outputs = []
         all_labels = []
@@ -490,15 +490,15 @@ class Trainer:
         print(f"Generating {num_samples} SWAG samples for uncertainty estimation...")
 
         for sample_idx in range(num_samples):
-            # Sample parameters from SWAG posterior
+            
             sampled_params = self.swag_optimizer.sample(scale=1.0, cov=True, seed=sample_idx)
             self.swag_optimizer.set_sampled_mode(self.model, sampled_params)
 
-            # Update BN statistics for this sample
-            if sample_idx == 0:  # Only need to do this once for all samples
+            
+            if sample_idx == 0:  
                 update_bn(test_dataloader, self.model, self.device)
 
-            # Evaluate this sample
+            
             sample_predictions = []
             sample_pro_outputs = []
 
@@ -506,14 +506,14 @@ class Trainer:
                 for batch in test_dataloader:
                     x, pert, y, pheno, fp_phA, fp_phB = [b.to(self.device) for b in batch]
 
-                    # Forward pass
+                    
                     outputs, pheno_pred, _ = self.model(x, pert, fp_phA, fp_phB,
                                                        self.args.time_stamp_predict_drug)
 
                     sample_predictions.extend(pheno_pred.cpu().numpy())
                     sample_pro_outputs.append(outputs.cpu().numpy())
 
-                    # Store ground truth only once
+                    
                     if sample_idx == 0:
                         all_labels.extend(pheno.cpu().numpy())
                         all_pro_targets.append(y.cpu().numpy())
@@ -521,19 +521,19 @@ class Trainer:
             all_sample_predictions.append(np.array(sample_predictions))
             all_sample_pro_outputs.append(np.concatenate(sample_pro_outputs, axis=0))
 
-        # Convert to numpy arrays
-        all_sample_predictions = np.array(all_sample_predictions)  # [num_samples, num_test_points]
-        all_sample_pro_outputs = np.array(all_sample_pro_outputs)  # [num_samples, num_test_points, ...]
+        
+        all_sample_predictions = np.array(all_sample_predictions)  
+        all_sample_pro_outputs = np.array(all_sample_pro_outputs)  
         all_labels = np.array(all_labels)
         all_pro_targets = np.concatenate(all_pro_targets, axis=0)
 
-        # Calculate statistics
+        
         mean_predictions = np.mean(all_sample_predictions, axis=0)
         std_predictions = np.std(all_sample_predictions, axis=0)
         mean_pro_outputs = np.mean(all_sample_pro_outputs, axis=0)
         std_pro_outputs = np.std(all_sample_pro_outputs, axis=0)
 
-        # Calculate metrics for mean predictions
+        
         binary_predictions = (mean_predictions >= 0.5).astype(int)
         accuracy = accuracy_score(all_labels, binary_predictions)
 
@@ -551,10 +551,10 @@ class Trainer:
             warnings.warn(f"AUPRC could not be computed: {exc}", RuntimeWarning)
             auprc = np.nan
 
-        # Calculate protein correlation with uncertainty
+        
         pro_corr = self.pearson_cor(torch.tensor(mean_pro_outputs), torch.tensor(all_pro_targets))
 
-        # Print results
+        
         print("\nSWAG Uncertainty Estimation Results:")
         print("Phenotype Prediction:")
         print(f"  Mean Accuracy: {accuracy:.4f}")
@@ -565,7 +565,7 @@ class Trainer:
         print(f"  Mean Correlation: {pro_corr:.4f}")
         print(f"  Output Uncertainty (mean std): {np.mean(std_pro_outputs):.4f}")
 
-        # Save uncertainty results
+        
         uncertainty_results = {
             'mean_predictions': mean_predictions,
             'std_predictions': std_predictions,
@@ -584,11 +584,11 @@ class Trainer:
             }
         }
 
-        # Save to file
+        
         uncertainty_path = os.path.join(self.args.dir_save, "swag_uncertainty_results.npz")
         np.savez(uncertainty_path, **uncertainty_results)
 
-        # Save metrics to text file
+        
         uncertainty_metrics_path = os.path.join(self.args.dir_save, "swag_uncertainty_metrics.txt")
         with open(uncertainty_metrics_path, 'w') as f:
             f.write("SWAG Uncertainty Estimation Results\n")
@@ -609,7 +609,7 @@ class Trainer:
         print(f"Uncertainty results saved to {uncertainty_path}")
         print(f"Uncertainty metrics saved to {uncertainty_metrics_path}")
 
-        # Set model back to SWAG mean
+        
         self.swag_optimizer.set_swag_mode(self.model)
 
     def _print_status(self, epoch, train_metrics, val_metrics):
@@ -644,17 +644,17 @@ class Trainer:
 
     def _save_test_results(self, metrics, predictions):
         """Save test results"""
-        # Convert predictions to binary using threshold of 0.5
+        
         binary_predictions = (predictions['predictions'] >= 0.5).astype(int)
         binary_labels = predictions['labels'].astype(int)
 
-        # Save detailed metrics
+        
         detailed_metrics = calculate_detailed_metrics(
             torch.tensor(binary_predictions),
             torch.tensor(binary_labels)
         )
 
-        # Save metrics to file
+        
         metrics_path = os.path.join(self.args.dir_save, "test_metrics.txt")
         with open(metrics_path, 'w') as f:
             f.write(f"Test Loss: {metrics['loss']:.4f}\n")
@@ -672,15 +672,15 @@ class Trainer:
             f.write(f"Matthews Correlation Coefficient: {detailed_metrics['mcc']:.4f}\n")
             f.write(f"Cohen's Kappa: {detailed_metrics['kappa']:.4f}\n")
 
-        # Save ROC curve data
+        
         roc_path = os.path.join(self.args.dir_save, "roc_curve_data.npz")
         np.savez(roc_path, fpr=predictions['fpr'], tpr=predictions['tpr'], auc=metrics['pheno_auroc'])
 
-        # Save PR curve data
+        
         pr_path = os.path.join(self.args.dir_save, "pr_curve_data.npz")
         np.savez(pr_path, precision=predictions['precision'], recall=predictions['recall'], auc=metrics['pheno_auprc'])
 
-        # Save ground truth and predictions
+        
         results_path = os.path.join(self.args.dir_save, "test_predictions.npz")
         np.savez(
             results_path,
@@ -689,7 +689,7 @@ class Trainer:
             binary_predictions=binary_predictions
         )
 
-        # Save as CSV for easier analysis
+        
         results_df_path = os.path.join(self.args.dir_save, "test_predictions.csv")
         pd.DataFrame({
             'ground_truth': predictions['labels'],
@@ -697,7 +697,7 @@ class Trainer:
             'binary_predictions': binary_predictions
         }).to_csv(results_df_path, index=False)
 
-        # Plot and save ROC and PR curves
+        
         plot_roc_curve(predictions['fpr'], predictions['tpr'], metrics['pheno_auroc'], self.args.dir_save)
         plot_pr_curve(predictions['precision'], predictions['recall'], metrics['pheno_auprc'], self.args.dir_save)
 
@@ -726,20 +726,20 @@ def load_model_from_checkpoint(model, optimizer, scheduler, checkpoint_path, dev
     Returns:
         tuple: (model, optimizer, scheduler, epoch)
     """
-    # Load checkpoint
+    
     checkpoint = torch.load(checkpoint_path, map_location=device)
 
-    # Load model state
+    
     model.load_state_dict(checkpoint['model_state_dict'])
 
-    # Load optimizer state
+    
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
-    # Load scheduler state if it exists
+    
     if 'scheduler_state_dict' in checkpoint:
         scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
 
-    # Get epoch
+    
     epoch = checkpoint.get('epoch', 0)
 
     return model, optimizer, scheduler, epoch
