@@ -40,6 +40,8 @@ For a dataset prefix such as `allcelltype_drugpair_crossdrug_`, the data directo
 
 `loo_label.csv` identifies the experiment and time point for each row. The model uses the baseline profile at 0 hours and predicts the profiles at 6, 24 and 48 hours.
 
+The data are available at: https://drive.google.com/drive/folders/1QRV-bD3zabVkFjznLR--Cca90fdU6Pr6?usp=sharing
+
 ## Training
 
 Run training from the `ProteinTalks` directory:
