@@ -1,5 +1,7 @@
 # ProteinTalks
 
+This file is part of the former ProteinTalks materials and is under the MIT License. The license text is `src/proteintalks/LICENCE.md`. That license covers only `src/proteintalks/` and `docs/proteintalks/`.
+
 ProteinTalks is a neural ordinary differential equation model for jointly predicting perturbation-induced proteomic dynamics and drug efficacy or combination synergy.
 
 ## Model
@@ -20,10 +22,11 @@ with `lambda_pheno=0.8` by default.
 
 ## Installation
 
-ProteinTalks uses Python 3.10.6. Install the Python dependencies from this directory:
+ProteinTalks uses Python 3.10.6. From the repository root:
 
 ```bash
-pip install -r requirements.txt
+uv python install 3.10.6
+uv sync
 ```
 
 ## Input files
@@ -44,10 +47,10 @@ The data are available at: https://drive.google.com/drive/folders/1QRV-bD3zabVkF
 
 ## Training
 
-Run training from the `ProteinTalks` directory:
+Run training from the repository root:
 
 ```bash
-python main.py \
+uv run ProteinTalks \
     --dataset_file_dir /path/to/dataset/ \
     --trainval_file_prefix allcelltype_drugpair_crossdrug_ \
     --time_stamp_predict_drug 6_24_48 \
@@ -70,7 +73,7 @@ The default training path uses AdamW and `ReduceLROnPlateau`.
 ## Prediction
 
 ```bash
-python main.py \
+uv run ProteinTalks \
     --train_from_scratch predict \
     --cp_save_dir_best /path/to/model_checkpoint.pt \
     --dataset_file_dir /path/to/dataset/ \
@@ -82,14 +85,14 @@ python main.py \
 
 ## Main files
 
-- `main.py`: training and prediction entry point
-- `dataset.py`: dataset loading and splitting
-- `model.py`: ProteinTalks model (`ppODE`)
-- `trainer.py`: joint training, validation and SWAG integration
-- `swag.py`: SWAG parameter collection and sampling
-- `metrics.py`: evaluation metrics
-- `plot.py`: ROC and precision–recall plots
-- `config.py`: command-line configuration
+- `src/proteintalks/cli.py`: training and prediction entry point (`ProteinTalks`)
+- `src/proteintalks/data/dataset.py`: dataset loading and splitting
+- `src/proteintalks/model/ode.py`: ProteinTalks model (`ppODE`)
+- `src/proteintalks/train/trainer.py`: joint training, validation and SWAG integration
+- `src/proteintalks/train/swag.py`: SWAG parameter collection and sampling
+- `src/proteintalks/eval/metrics.py`: evaluation metrics
+- `src/proteintalks/eval/plot.py`: ROC and precision–recall plots
+- `src/proteintalks/config.py`: command-line configuration
 
 
 Note:

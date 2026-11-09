@@ -129,7 +129,8 @@ def setup_device(args):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     torch.manual_seed(args.random_seed)
-    torch.cuda.manual_seed(args.random_seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(args.random_seed)
     np.random.seed(args.random_seed)
 
     return device

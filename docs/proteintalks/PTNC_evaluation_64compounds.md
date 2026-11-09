@@ -1,5 +1,7 @@
 # PTNC_evaluation_64compounds
 
+This file is part of the former ProteinTalks materials and is under the MIT License. The license text is `src/proteintalks/LICENCE.md`. That license covers only `src/proteintalks/` and `docs/proteintalks/`. The directory tree below describes a separately downloaded evaluation package, not this repository.
+
 This package provides a more detailed analysis of the PTNC evaluation reported in the main text, including a comparison between the original 81-compound evaluation and the 64-compound evaluation. It contains the input data, trained model checkpoints, prediction code and saved outputs for evaluating ProteinTalks, GeneCompass, Geneformer and UCE on the 64-compound subset comprising 133 drug–cell line pairs. The supplied scripts perform inference with existing checkpoints; they do not retrain the models or regenerate the baseline embeddings.
 
 ## Supplementary note: compound identification across libraries in published studies

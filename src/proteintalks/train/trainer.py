@@ -7,10 +7,10 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score, accuracy_score, precision_score, recall_score, f1_score, matthews_corrcoef, cohen_kappa_score
 import torch.nn.functional as F
-from utils import save_checkpoint, check_early_stopping
-from swag import SWAG, SWAGCallback, update_bn
-from metrics import calculate_detailed_metrics
-from plot import (
+from proteintalks.train.checkpoint import save_checkpoint, check_early_stopping
+from proteintalks.train.swag import SWAG, SWAGCallback, update_bn
+from proteintalks.eval.metrics import calculate_detailed_metrics
+from proteintalks.eval.plot import (
     plot_roc_curve,
     plot_pr_curve
 )

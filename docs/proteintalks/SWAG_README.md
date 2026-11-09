@@ -1,5 +1,7 @@
 # SWAG training
 
+This file is part of the former ProteinTalks materials and is under the MIT License. The license text is `src/proteintalks/LICENCE.md`. That license covers only `src/proteintalks/` and `docs/proteintalks/`.
+
 ProteinTalks supports stochastic weight averaging-Gaussian (SWAG) during joint model training.
 
 ## Training phase
@@ -9,7 +11,7 @@ Training begins with AdamW and a `ReduceLROnPlateau` scheduler. The SWAG phase b
 ## Command
 
 ```bash
-python main.py \
+uv run ProteinTalks \
     --dataset_file_dir /path/to/dataset/ \
     --trainval_file_prefix allcelltype_drugpair_crossdrug_ \
     --time_stamp_predict_drug 6_24_48 \

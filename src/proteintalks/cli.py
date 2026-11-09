@@ -11,10 +11,10 @@ import numpy as np
 import pickle
 import pandas as pd
 
-from config import get_args, setup_device, setup_directories
-from dataset import prepare_data, prepare_testdata
-from model import ppODE
-from trainer import Trainer, load_model_from_checkpoint
+from proteintalks.config import get_args, setup_device, setup_directories
+from proteintalks.data.dataset import prepare_data, prepare_testdata
+from proteintalks.model.ode import ppODE
+from proteintalks.train.trainer import Trainer, load_model_from_checkpoint
 
 def main():
     """
