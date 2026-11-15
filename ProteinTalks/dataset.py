@@ -75,13 +75,13 @@ class ProteomicsDataset(Dataset):
                 if check_time_point == 0:
                     test_command = loo_label[(loo_label[0] == experiment_type) & (loo_label[1] == int(check_time_point))].index[0]
                 else:
-                    test_command = loo_label[(loo_label[0].str.contains(pattern)) & (loo_label[1] == int(0))].index[0]
+                    test_command = loo_label[(loo_label[0].str.split("_", n=1).str[0] == experiment_type.split("_")[0]) & (loo_label[1] == int(0))].index[0]
 
                 if (expr.loc[test_command]).any():
                     
                     timepoint = timepoint_x
                     pattern = re.escape(experiment_type.split('_')[0])
-                    x_values = expr.loc[loo_label[(loo_label[0].str.contains(pattern)) & (loo_label[1] == int(timepoint))].index[0]].values[0:]
+                    x_values = expr.loc[loo_label[(loo_label[0].str.split("_", n=1).str[0] == experiment_type.split("_")[0]) & (loo_label[1] == int(timepoint))].index[0]].values[0:]
                     x = torch.tensor(np.log(x_values+1)).float().unsqueeze(1)
                     x_min, x_max = torch.min(x), torch.max(x)
                     x_norm = (x - x_min) / (x_max - x_min)
